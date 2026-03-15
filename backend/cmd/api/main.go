@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 
@@ -9,6 +10,8 @@ import (
 	"ares-ai-backend/internal/repository"
 	"ares-ai-backend/internal/routes"
 	"ares-ai-backend/internal/service"
+
+	"github.com/stripe/stripe-go/v82"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -43,6 +46,14 @@ func main() {
 		log.Println("Warning: .env file not found, using system environment variables")
 	}
 
+	// Initialize Stripe
+	stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
+	if stripe.Key == "" {
+		log.Println("Warning: STRIPE_SECRET_KEY not set — payments will not work")
+	} else {
+		log.Println("✅ Stripe initialized")
+	}
+
 	// Get database URL from environment
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
@@ -70,14 +81,16 @@ func main() {
 		&models.AuditReport{},
 		&models.AudioDebate{},
 		&models.Payment{},
+		&models.Offer{},
 	); err != nil {
 		log.Fatalf("Migration failed: %v\n", err)
 	}
 
 	log.Println("✅ Database migration completed!")
 
-	// Seed default roles
+	// Seed default roles and offers
 	seedRoles(db)
+	seedOffers(db)
 
 	// Initialize Fiber app
 	app := fiber.New(fiber.Config{
@@ -87,7 +100,7 @@ func main() {
 	// Middleware
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:3000, http://localhost:5173, http://127.0.0.1:3000, http://127.0.0.1:5173",
+		AllowOrigins:     "http://localhost:3000, http://localhost:5173, http://localhost:5174, http://127.0.0.1:3000, http://127.0.0.1:5173, http://127.0.0.1:5174",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 		AllowMethods:     "GET, POST, PUT, DELETE, OPTIONS",
 		AllowCredentials: true,
@@ -115,11 +128,21 @@ func main() {
 	docService := service.NewDocumentServiceWithCloudinary(docRepo, cloudinaryService)
 	docHandler := handlers.NewDocumentHandler(docService)
 
+	offerRepo := repository.NewOfferRepository(db)
+	offerService := service.NewOfferService(offerRepo)
+	offerHandler := handlers.NewOfferHandler(offerService)
+
+	paymentRepo := repository.NewPaymentRepository(db)
+	paymentService := service.NewPaymentService(paymentRepo, offerRepo, userRepo)
+	paymentHandler := handlers.NewPaymentHandler(paymentService)
+
 	// Setup routes
 	routes.SetupHealthRoutes(api)
 	routes.SetupAuthRoutes(api, userHandler)
 	routes.SetupUserRoutes(api, userHandler)
 	routes.SetupDocumentRoutes(api, docHandler)
+	routes.SetupOfferRoutes(api, offerHandler)
+	routes.SetupPaymentRoutes(api, paymentHandler)
 
 	// Start server
 	port := os.Getenv("PORT")
@@ -133,6 +156,81 @@ func main() {
 	if err := app.Listen(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v\n", err)
 	}
+}
+
+// seedOffers inserts the default subscription plans if they don't exist yet
+func seedOffers(db *gorm.DB) {
+	operatorFeatures, _ := json.Marshal([]string{"10 audits / month", "3 rounds per audit", "Basic heatmap analysis", "7-day audit history"})
+	strategistFeatures, _ := json.Marshal([]string{"100 audits / month", "10 rounds per audit", "Full heatmap + annotations", "Rebuttal console access", "PDF export reports", "90-day audit history"})
+	titanFeatures, _ := json.Marshal([]string{"Unlimited audits / month", "20 rounds per audit", "Full heatmap + annotations", "Rebuttal console access", "PDF export reports", "Unlimited audit history", "Priority support"})
+
+	offers := []models.Offer{
+		{
+			ID:            1,
+			Name:          "OPERATOR",
+			Tier:          1,
+			TierLabel:     "TIER 01",
+			Price:         0,
+			PriceLabel:    "$0",
+			PriceSuffix:   "/month",
+			Features:      operatorFeatures,
+			Color:         "#ffffff",
+			IsRecommended: false,
+			IsActive:      true,
+			SortOrder:     1,
+			CTALabel:      "CURRENT PLAN",
+			CTAType:       "none",
+			CTALink:       "",
+		},
+		{
+			ID:            2,
+			Name:          "STRATEGIST",
+			Tier:          2,
+			TierLabel:     "TIER 02",
+			Price:         49,
+			PriceLabel:    "$49",
+			PriceSuffix:   "/month",
+			Features:      strategistFeatures,
+			Color:         "#EF4444",
+			IsRecommended: true,
+			IsActive:      true,
+			SortOrder:     2,
+			CTALabel:      "UPGRADE TO STRATEGIST",
+			CTAType:       "link",
+			CTALink:       "/checkout/2",
+		},
+		{
+			ID:            3,
+			Name:          "TITAN",
+			Tier:          3,
+			TierLabel:     "TIER 03",
+			Price:         100,
+			PriceLabel:    "$100",
+			PriceSuffix:   "/month",
+			Features:      titanFeatures,
+			Color:         "#F59E0B",
+			IsRecommended: false,
+			IsActive:      true,
+			SortOrder:     3,
+			CTALabel:      "UPGRADE TO TITAN",
+			CTAType:       "link",
+			CTALink:       "/checkout/3",
+		},
+	}
+
+	// Use Save so existing rows get updated (upsert by primary key)
+	for _, offer := range offers {
+		if err := db.Save(&offer).Error; err != nil {
+			log.Printf("Warning: Failed to seed offer %s: %v\n", offer.Name, err)
+		}
+	}
+
+	// Remove deprecated offer IDs if they exist
+	for _, id := range []uint{4} {
+		db.Delete(&models.Offer{}, id)
+	}
+
+	log.Println("✅ Offers seeded!")
 }
 
 // seedRoles ensures the required roles exist in the database

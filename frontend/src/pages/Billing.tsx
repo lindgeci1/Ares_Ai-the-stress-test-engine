@@ -1,7 +1,34 @@
-import React from 'react';
-import { CheckIcon, ZapIcon, BuildingIcon, ArrowRightIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CheckIcon, ZapIcon, ArrowRightIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { authService, Offer, Payment } from '../services/authService';
+import { useAuth } from '../context/AuthContext';
 export function Billing() {
+  const { user } = useAuth();
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(true);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(true);
+
+  useEffect(() => {
+    authService.getActiveOffers()
+      .then(setOffers)
+      .catch((error) => {
+        console.error('Failed to load offers:', error);
+      })
+      .finally(() => setOffersLoading(false));
+  }, []);
+
+  useEffect(() => {
+    authService.getPaymentHistory()
+      .then(setPayments)
+      .catch((error) => {
+        console.error('Failed to load payment history:', error);
+      })
+      .finally(() => setPaymentsLoading(false));
+  }, []);
+
+  const activeTier = user?.subscription_tier?.toUpperCase() ?? 'FREE';
   return (
     <div className="p-6 min-h-full">
       {/* Header */}
@@ -9,11 +36,11 @@ export function Billing() {
         <div className="flex items-center gap-2 mb-1">
           <ZapIcon className="w-4 h-4 text-[#EF4444]" />
           <h1 className="font-sans text-xl font-bold text-white tracking-wide">
-            BILLING & PLANS
+            BILLING &amp; PLANS
           </h1>
         </div>
         <p className="font-mono text-[10px] text-[#404040] tracking-wider">
-          CURRENT PLAN: FREE TIER — 4/10 AUDITS USED
+          CURRENT PLAN: {activeTier}
         </p>
       </div>
 
@@ -40,161 +67,109 @@ export function Billing() {
         </p>
       </div>
 
-      {/* Pricing tiers — now 4 columns */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-px bg-[#262626] mb-8">
-        {/* Free */}
-        <div className="bg-[#0a0a0a] p-6 flex flex-col">
-          <div className="mb-4">
-            <span className="font-mono text-[9px] text-[#404040] tracking-widest">
-              TIER 01
-            </span>
-            <h2 className="font-sans text-lg font-bold text-white mt-1">
-              OPERATOR
-            </h2>
-            <div className="flex items-baseline gap-1 mt-2">
-              <span className="font-mono text-3xl font-bold text-white">
-                $0
-              </span>
-              <span className="font-mono text-xs text-[#404040]">/month</span>
-            </div>
+      {/* Pricing tiers — loaded from DB */}
+      {offersLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="w-8 h-8 border border-[#EF4444] border-t-transparent animate-spin mx-auto mb-3" />
+            <p className="font-mono text-[9px] text-[#404040] tracking-widest">LOADING PACKAGES...</p>
           </div>
-          <ul className="space-y-2 mb-6 flex-1">
-            {[
-            '10 audits / month',
-            '3 rounds per audit',
-            'Basic heatmap analysis',
-            '7-day audit history'].
-            map((f) =>
-            <li key={f} className="flex items-center gap-2">
-                <CheckIcon className="w-3 h-3 text-[#404040] flex-shrink-0" />
-                <span className="font-mono text-[10px] text-[#666]">{f}</span>
-              </li>
-            )}
-          </ul>
-          <button className="w-full py-2.5 border border-[#262626] text-[#404040] font-mono text-xs tracking-widest cursor-default">
-            CURRENT PLAN
-          </button>
         </div>
+      ) : (
+        <div className={`grid grid-cols-1 gap-px bg-[#262626] mb-8 ${
+          offers.length <= 1 ? 'md:grid-cols-1' :
+          offers.length === 2 ? 'md:grid-cols-2' :
+          offers.length === 3 ? 'md:grid-cols-3' :
+          'md:grid-cols-2 xl:grid-cols-4'
+        }`}>
+          {offers.map((offer) => (
+            <div
+              key={offer.id}
+              className={`bg-[#0a0a0a] p-6 flex flex-col relative ${
+                offer.is_recommended ? 'border-t-2' : ''
+              }`}
+              style={offer.is_recommended ? { borderTopColor: offer.color } : {}}>
 
-        {/* Pro */}
-        <div className="bg-[#0a0a0a] p-6 border-t-2 border-t-[#EF4444] relative flex flex-col">
-          <div className="absolute top-0 right-4 -translate-y-1/2">
-            <span className="font-mono text-[9px] font-bold text-white bg-[#EF4444] px-2 py-0.5 tracking-widest">
-              RECOMMENDED
-            </span>
-          </div>
-          <div className="mb-4">
-            <span className="font-mono text-[9px] text-[#EF4444] tracking-widest">
-              TIER 02
-            </span>
-            <h2 className="font-sans text-lg font-bold text-white mt-1">
-              STRATEGIST
-            </h2>
-            <div className="flex items-baseline gap-1 mt-2">
-              <span className="font-mono text-3xl font-bold text-[#EF4444]">
-                $49
-              </span>
-              <span className="font-mono text-xs text-[#404040]">/month</span>
+              {/* Active plan badge */}
+              {/* {activeTier === offer.name.toUpperCase() && (
+                <div className="absolute top-3 left-3">
+                  <span className="font-mono text-[8px] font-bold text-black bg-white px-2 py-0.5 tracking-widest">
+                    ✓ CURRENT PLAN
+                  </span>
+                </div>
+              )} */}
+
+              {offer.is_recommended && (
+                <div className="absolute top-0 right-4 -translate-y-1/2">
+                  <span className="font-mono text-[9px] font-bold text-white bg-[#EF4444] px-2 py-0.5 tracking-widest">
+                    RECOMMENDED
+                  </span>
+                </div>
+              )}
+
+              <div className="mb-4">
+                <span
+                  className="font-mono text-[9px] tracking-widest"
+                  style={{ color: offer.color }}>
+                  {offer.tier_label}
+                </span>
+                <h2 className="font-sans text-lg font-bold text-white mt-1">
+                  {offer.name}
+                </h2>
+                <div className="flex items-baseline gap-1 mt-2">
+                  <span
+                    className="font-mono text-3xl font-bold"
+                    style={{ color: offer.price === 0 && offer.tier === 1 ? '#ffffff' : offer.color }}>
+                    {offer.price_label}
+                  </span>
+                  {offer.price_suffix && (
+                    <span className="font-mono text-xs text-[#404040]">{offer.price_suffix}</span>
+                  )}
+                </div>
+              </div>
+
+              <ul className="space-y-2 mb-6 flex-1">
+                {offer.features.map((f) => (
+                  <li key={f} className="flex items-center gap-2">
+                    <CheckIcon
+                      className="w-3 h-3 flex-shrink-0"
+                      style={{ color: offer.tier === 1 ? '#404040' : offer.color }} />
+                    <span className="font-mono text-[10px] text-[#666]">{f}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {offer.cta_type === 'none' && (
+                <button className="w-full py-2.5 border border-[#262626] text-[#404040] font-mono text-xs tracking-widest cursor-default">
+                  {offer.cta_label}
+                </button>
+              )}
+              {offer.cta_type === 'link' && activeTier === offer.name.toUpperCase() ? (
+                <button
+                  disabled
+                  className="w-full py-2.5 border border-[#262626] text-[#404040] font-mono text-xs tracking-widest cursor-default">
+                  CURRENT PLAN
+                </button>
+              ) : offer.cta_type === 'link' ? (
+                <Link
+                  to={offer.cta_link}
+                  className="w-full py-2.5 font-mono text-xs font-bold tracking-widest text-white text-center block transition-colors"
+                  style={{ backgroundColor: offer.color }}>
+                  {offer.cta_label}
+                </Link>
+              ) : offer.cta_type === 'contact' ? (
+                <a
+                  href={offer.cta_link}
+                  className="w-full py-2.5 border font-mono text-xs font-bold tracking-widest hover:text-white transition-colors flex items-center justify-center gap-2"
+                  style={{ borderColor: offer.color, color: offer.color }}>
+                  {offer.cta_label}
+                  <ArrowRightIcon className="w-3 h-3" />
+                </a>
+              ) : null}
             </div>
-          </div>
-          <ul className="space-y-2 mb-6 flex-1">
-            {[
-            'Unlimited audits',
-            '10 rounds per audit',
-            'Full heatmap + annotations',
-            'Rebuttal console access',
-            'PDF export reports',
-            '90-day audit history'].
-            map((f) =>
-            <li key={f} className="flex items-center gap-2">
-                <CheckIcon className="w-3 h-3 text-[#EF4444] flex-shrink-0" />
-                <span className="font-mono text-[10px] text-[#888]">{f}</span>
-              </li>
-            )}
-          </ul>
-          <Link
-            to="/checkout/pro"
-            className="w-full py-2.5 bg-[#EF4444] text-white font-mono text-xs font-bold tracking-widest hover:bg-[#dc2626] transition-colors text-center block">
-
-            UPGRADE TO PRO
-          </Link>
+          ))}
         </div>
-
-        {/* Enterprise */}
-        <div className="bg-[#0a0a0a] p-6 border-t-2 border-t-[#3B82F6] relative flex flex-col">
-          <div className="mb-4">
-            <span className="font-mono text-[9px] text-[#3B82F6] tracking-widest">
-              TIER 03
-            </span>
-            <h2 className="font-sans text-lg font-bold text-white mt-1">
-              ENTERPRISE
-            </h2>
-            <div className="flex items-baseline gap-1 mt-2">
-              <span className="font-mono text-3xl font-bold text-[#3B82F6]">
-                CUSTOM
-              </span>
-            </div>
-          </div>
-          <ul className="space-y-2 mb-6 flex-1">
-            {[
-            'Custom API integrations',
-            'White-label audits',
-            'Dedicated support'].
-            map((f) =>
-            <li key={f} className="flex items-center gap-2">
-                <CheckIcon className="w-3 h-3 text-[#3B82F6] flex-shrink-0" />
-                <span className="font-mono text-[10px] text-[#888]">{f}</span>
-              </li>
-            )}
-          </ul>
-          <a
-            href="mailto:sales@aresai.com"
-            className="w-full py-2.5 border border-[#3B82F6] text-[#3B82F6] font-mono text-xs font-bold tracking-widest hover:bg-[#3B82F6] hover:text-white transition-colors flex items-center justify-center gap-2">
-
-            CONTACT SALES
-            <ArrowRightIcon className="w-3 h-3" />
-          </a>
-        </div>
-
-        {/* Custom / Enterprise (new) */}
-        <div className="bg-[#080808] p-6 border-t-2 border-t-[#404040] relative flex flex-col">
-          <div className="mb-4">
-            <span className="font-mono text-[9px] text-[#404040] tracking-widest">
-              TIER 04
-            </span>
-            <h2 className="font-sans text-lg font-bold text-white mt-1">
-              CUSTOM
-            </h2>
-            <div className="flex items-baseline gap-1 mt-2">
-              <span className="font-mono text-xl font-bold text-[#666]">
-                BESPOKE
-              </span>
-            </div>
-            <p className="font-mono text-[9px] text-[#333] mt-1 tracking-wider">
-              FULLY TAILORED DEPLOYMENT
-            </p>
-          </div>
-          <ul className="space-y-2 mb-6 flex-1">
-            {[
-            'Custom API integrations',
-            'White-label audits',
-            'Dedicated support'].
-            map((f) =>
-            <li key={f} className="flex items-center gap-2">
-                <CheckIcon className="w-3 h-3 text-[#404040] flex-shrink-0" />
-                <span className="font-mono text-[10px] text-[#555]">{f}</span>
-              </li>
-            )}
-          </ul>
-          <a
-            href="mailto:sales@aresai.com"
-            className="w-full py-2.5 border border-[#404040] text-[#666] font-mono text-xs font-bold tracking-widest hover:border-[#666] hover:text-white transition-colors flex items-center justify-center gap-2">
-
-            CONTACT SALES
-            <ArrowRightIcon className="w-3 h-3" />
-          </a>
-        </div>
-      </div>
+      )}
 
       {/* Billing history */}
       <div className="border border-[#262626]">
@@ -204,9 +179,56 @@ export function Billing() {
           </span>
         </div>
         <div className="p-4">
-          <p className="font-mono text-[10px] text-[#333] text-center py-4">
-            NO BILLING HISTORY — FREE TIER
-          </p>
+          {paymentsLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <div className="w-5 h-5 border border-[#EF4444] border-t-transparent animate-spin" />
+            </div>
+          ) : payments.length === 0 ? (
+            <p className="font-mono text-[10px] text-[#333] text-center py-4">
+              NO BILLING HISTORY
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#1a1a1a]">
+                    <th className="text-left font-mono text-[9px] text-[#404040] tracking-widest pb-2 pr-4">DATE</th>
+                    <th className="text-left font-mono text-[9px] text-[#404040] tracking-widest pb-2 pr-4">PLAN</th>
+                    <th className="text-right font-mono text-[9px] text-[#404040] tracking-widest pb-2 pr-4">AMOUNT</th>
+                    <th className="text-right font-mono text-[9px] text-[#404040] tracking-widest pb-2">STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p) => (
+                    <tr key={p.id} className="border-b border-[#111] last:border-0">
+                      <td className="font-mono text-[10px] text-[#666] py-2.5 pr-4">
+                        {new Date(p.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </td>
+                      <td className="font-mono text-[10px] text-white py-2.5 pr-4">
+                        {p.offer?.name ?? 'PLAN'}
+                      </td>
+                      <td className="font-mono text-[10px] text-white py-2.5 pr-4 text-right">
+                        ${p.amount_paid.toFixed(2)}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <span
+                          className={`font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 ${
+                            p.status === 'succeeded'
+                              ? 'text-green-400 bg-green-400/10'
+                              : p.status === 'pending'
+                              ? 'text-yellow-400 bg-yellow-400/10'
+                              : 'text-[#EF4444] bg-[#EF4444]/10'
+                          }`}
+                        >
+                          {p.status.toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </div>);

@@ -1,82 +1,186 @@
-import React, { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+﻿import React, { useState, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ZapIcon,
   LockIcon,
   CheckIcon,
   ArrowLeftIcon,
-  CreditCardIcon,
-  ShieldCheckIcon } from
-'lucide-react';
-const PLANS: Record<
-  string,
-  {
-    name: string;
-    price: string;
-    priceNum: string;
-    period: string;
-    features: string[];
-  }> =
-{
-  pro: {
-    name: 'STRATEGIST PRO',
-    price: '$49',
-    priceNum: '49.00',
-    period: '/month',
-    features: [
-    'Unlimited audits per month',
-    '10 battle rounds per audit',
-    'Full heatmap + annotations',
-    'Rebuttal console access',
-    'PDF export reports',
-    '90-day audit history']
+  ShieldCheckIcon,
+  AlertCircleIcon,
+} from "lucide-react";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  CardElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
+import { authService, Offer, PaymentIntentResult } from "../services/authService";
 
-  },
-  enterprise: {
-    name: 'ENTERPRISE',
-    price: 'CUSTOM',
-    priceNum: '—',
-    period: '',
-    features: [
-    'Everything in Strategist Pro',
-    'Custom API integrations',
-    'White-label audits',
-    'Dedicated support',
-    'SSO & SAML integration',
-    'Temp access key generation']
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "");
 
-  }
+const SLUG_TO_OFFER_ID: Record<string, number> = {
+  pro: 2,
+  strategist: 2,
+  titan: 3,
 };
-export function Checkout() {
-  const { plan } = useParams<{
-    plan: string;
-  }>();
-  const navigate = useNavigate();
-  const planData = PLANS[plan ?? 'pro'] ?? PLANS.pro;
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvc, setCvc] = useState('');
-  const [name, setName] = useState('');
+
+const CARD_ELEMENT_OPTIONS = {
+  style: {
+    base: {
+      color: "#ffffff",
+      fontFamily: '"JetBrains Mono", "Courier New", monospace',
+      fontSize: "14px",
+      letterSpacing: "0.05em",
+      "::placeholder": { color: "#2a2a2a" },
+      iconColor: "#404040",
+    },
+    invalid: { color: "#EF4444", iconColor: "#EF4444" },
+  },
+};
+
+interface CheckoutFormProps {
+  offer: Offer;
+  intentData: PaymentIntentResult;
+  onSuccess: () => void;
+}
+
+function CheckoutForm({ offer, intentData, onSuccess }: CheckoutFormProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [name, setName] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [done, setDone] = useState(false);
-  const formatCardNumber = (val: string) => {
-    const digits = val.replace(/\D/g, '').slice(0, 16);
-    return digits.replace(/(.{4})/g, '$1 ').trim();
-  };
-  const formatExpiry = (val: string) => {
-    const digits = val.replace(/\D/g, '').slice(0, 4);
-    if (digits.length >= 3) return digits.slice(0, 2) + ' / ' + digits.slice(2);
-    return digits;
-  };
-  const handlePay = (e: React.FormEvent) => {
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!stripe || !elements) return;
     setProcessing(true);
-    setTimeout(() => {
+    setErrorMsg("");
+    const card = elements.getElement(CardElement);
+    if (!card) {
+      setErrorMsg("Card element not found.");
       setProcessing(false);
-      setDone(true);
-      setTimeout(() => navigate('/dashboard'), 2000);
-    }, 2200);
+      return;
+    }
+    const { error, paymentIntent } = await stripe.confirmCardPayment(
+      intentData.client_secret,
+      { payment_method: { card, billing_details: { name } } }
+    );
+    if (error) {
+      setErrorMsg(error.message || "Payment failed. Please try again.");
+      setProcessing(false);
+      return;
+    }
+    if (paymentIntent?.status === "succeeded") {
+      try {
+        await authService.confirmPayment(paymentIntent.id, offer.id);
+        onSuccess();
+      } catch (err: any) {
+        setErrorMsg(err.message || "Payment confirmed but profile update failed.");
+        setProcessing(false);
+      }
+    }
   };
+
+  return (
+    <form onSubmit={handlePay} className="space-y-5">
+      <div>
+        <label className="block font-mono text-[9px] text-[#666] tracking-widest mb-2">
+          CARDHOLDER NAME
+        </label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="JOHN DOE"
+          required
+          className="w-full bg-[#020202] border border-[#262626] px-4 py-3 font-mono text-sm text-white placeholder-[#2a2a2a] focus:border-[#3B82F6] focus:outline-none transition-colors tracking-wider"
+        />
+      </div>
+      <div>
+        <label className="block font-mono text-[9px] text-[#666] tracking-widest mb-2">
+          CARD DETAILS
+        </label>
+        <div className="bg-[#020202] border border-[#262626] px-4 py-3.5 focus-within:border-[#3B82F6] transition-colors">
+          <CardElement options={CARD_ELEMENT_OPTIONS} />
+        </div>
+      </div>
+      {errorMsg && (
+        <div className="flex items-start gap-2 bg-[#EF4444]/10 border border-[#EF4444]/30 px-3 py-2">
+          <AlertCircleIcon className="w-3.5 h-3.5 text-[#EF4444] flex-shrink-0 mt-0.5" />
+          <p className="font-mono text-[10px] text-[#EF4444] leading-relaxed">{errorMsg}</p>
+        </div>
+      )}
+      <div className="h-px bg-[#262626]" />
+      <div className="flex items-center justify-between bg-[#0a0a0a] border border-[#262626] px-4 py-3">
+        <span className="font-mono text-[10px] text-[#666] tracking-widest">{offer.name}</span>
+        <span className="font-mono text-sm font-bold text-white">
+          {offer.price_label}{offer.price_suffix}
+        </span>
+      </div>
+      <button
+        type="submit"
+        disabled={processing || !stripe}
+        className="w-full py-4 bg-[#3B82F6] text-white font-mono text-sm font-bold tracking-widest hover:bg-[#2563eb] transition-colors disabled:opacity-60 disabled:cursor-not-allowed relative overflow-hidden"
+      >
+        {processing ? (
+          <span className="flex items-center justify-center gap-3">
+            <span className="font-mono text-xs tracking-widest">PROCESSING PAYMENT</span>
+          </span>
+        ) : (
+          <span className="flex items-center justify-center gap-2">
+            <LockIcon className="w-3.5 h-3.5" />
+            PAY {offer.price_label} &amp; UNLOCK QUOTA
+          </span>
+        )}
+        {processing && (
+          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#1d4ed8] overflow-hidden">
+            <div className="h-full bg-white/40" style={{ animation: "scan-pulse 1.2s linear infinite" }} />
+          </div>
+        )}
+      </button>
+      <p className="font-mono text-[9px] text-[#262626] text-center tracking-wider">
+        BY COMPLETING THIS PURCHASE YOU AGREE TO OUR TERMS OF SERVICE
+      </p>
+    </form>
+  );
+}
+
+export function Checkout() {
+  const { plan } = useParams<{ plan: string }>();
+  const navigate = useNavigate();
+  const offerId = parseInt(plan ?? "") || SLUG_TO_OFFER_ID[plan ?? ""] || 2;
+  const [offer, setOffer] = useState<Offer | null>(null);
+  const [intentData, setIntentData] = useState<PaymentIntentResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    async function init() {
+      try {
+        const offers = await authService.getActiveOffers();
+        const found = offers.find((o) => o.id === offerId);
+        if (!found) throw new Error("Plan not found.");
+        if (found.price <= 0) throw new Error("This plan is free — no payment required.");
+        setOffer(found);
+        const intent = await authService.createPaymentIntent(offerId);
+        setIntentData(intent);
+      } catch (err: any) {
+        setLoadError(err.message || "Failed to initialize checkout.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, [offerId]);
+
+  const handleSuccess = () => {
+    setDone(true);
+    setTimeout(() => navigate("/billing"), 2200);
+  };
+
   if (done) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center">
@@ -84,280 +188,152 @@ export function Checkout() {
           <div className="w-12 h-12 bg-[#3B82F6]/10 border border-[#3B82F6]/30 flex items-center justify-center mx-auto mb-4">
             <CheckIcon className="w-6 h-6 text-[#3B82F6]" />
           </div>
-          <h2 className="font-sans text-xl font-bold text-white mb-2">
-            PAYMENT CONFIRMED
-          </h2>
+          <h2 className="font-sans text-xl font-bold text-white mb-2">PAYMENT CONFIRMED</h2>
           <p className="font-mono text-[10px] text-[#404040] tracking-widest">
-            REDIRECTING TO COMMAND CENTER...
+            REDIRECTING TO BILLING...
           </p>
           <div className="scanning-bar scanning-bar-blue mt-6 w-48 mx-auto" />
         </div>
-      </div>);
-
+      </div>
+    );
   }
-  return (
-    <div className="min-h-screen bg-[#050505] text-white">
-      {/* Top bar */}
-      <div className="border-b border-[#262626] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ZapIcon className="w-4 h-4 text-[#EF4444]" />
-          <span className="font-mono text-sm font-bold tracking-widest">
-            ARES AI
-          </span>
-          <span className="font-mono text-[10px] text-[#404040] tracking-widest ml-2">
-            — SECURE CHECKOUT
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <LockIcon className="w-3 h-3 text-[#404040]" />
-          <span className="font-mono text-[9px] text-[#404040] tracking-widest">
-            256-BIT ENCRYPTED
-          </span>
+
+  const topBar = (
+    <div className="border-b border-[#262626] px-6 py-4 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <ZapIcon className="w-4 h-4 text-[#EF4444]" />
+        <span className="font-mono text-sm font-bold tracking-widest">ARES AI</span>
+        <span className="font-mono text-[10px] text-[#404040] tracking-widest ml-2">
+          — SECURE CHECKOUT
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <LockIcon className="w-3 h-3 text-[#404040]" />
+        <span className="font-mono text-[9px] text-[#404040] tracking-widest">256-BIT ENCRYPTED</span>
+      </div>
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white">
+        {topBar}
+        <div className="flex items-center justify-center py-32">
+          <div className="text-center">
+            <div className="w-8 h-8 border border-[#3B82F6] border-t-transparent animate-spin mx-auto mb-3" />
+            <p className="font-mono text-[9px] text-[#404040] tracking-widest">
+              INITIALIZING SECURE CHECKOUT...
+            </p>
+          </div>
         </div>
       </div>
+    );
+  }
 
+  if (loadError || !offer || !intentData) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white">
+        {topBar}
+        <div className="flex items-center justify-center py-32">
+          <div className="text-center max-w-sm">
+            <AlertCircleIcon className="w-8 h-8 text-[#EF4444] mx-auto mb-3" />
+            <p className="font-mono text-sm text-white mb-2">CHECKOUT UNAVAILABLE</p>
+            <p className="font-mono text-[10px] text-[#404040] tracking-wider mb-6">
+              {loadError || "An unexpected error occurred."}
+            </p>
+            <Link to="/billing" className="font-mono text-[10px] text-[#3B82F6] tracking-widest hover:text-white transition-colors">
+              LEFT ARROW BACK TO PLANS
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-white">
+      {topBar}
       <div className="max-w-4xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-2 gap-0 border border-[#262626] mt-8">
-        {/* LEFT: Order Summary */}
         <div className="bg-[#080808] border-r border-[#262626] p-8 flex flex-col">
           <Link
             to="/billing"
-            className="flex items-center gap-2 font-mono text-[10px] text-[#404040] hover:text-[#666] tracking-widest mb-8 transition-colors w-fit">
-
+            className="flex items-center gap-2 font-mono text-[10px] text-[#404040] hover:text-[#666] tracking-widest mb-8 transition-colors w-fit"
+          >
             <ArrowLeftIcon className="w-3 h-3" />
             BACK TO PLANS
           </Link>
-
           <div className="mb-2">
-            <span className="font-mono text-[9px] text-[#404040] tracking-widest">
-              ORDER SUMMARY
-            </span>
+            <span className="font-mono text-[9px] text-[#404040] tracking-widest">ORDER SUMMARY</span>
           </div>
-
           <div className="border border-[#262626] bg-[#050505] p-5 mb-6">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <div className="font-mono text-[9px] text-[#3B82F6] tracking-widest mb-1">
-                  PLAN
+                <div className="font-mono text-[9px] tracking-widest mb-1" style={{ color: offer.color }}>
+                  {offer.tier_label}
                 </div>
-                <div className="font-sans text-base font-bold text-white">
-                  {planData.name}
-                </div>
+                <div className="font-sans text-base font-bold text-white">{offer.name}</div>
               </div>
               <div className="text-right">
-                <div className="font-mono text-2xl font-bold text-[#3B82F6]">
-                  {planData.price}
+                <div className="font-mono text-2xl font-bold" style={{ color: offer.color }}>
+                  {offer.price_label}
                 </div>
-                {planData.period &&
-                <div className="font-mono text-[10px] text-[#404040]">
-                    {planData.period}
-                  </div>
-                }
+                {offer.price_suffix && (
+                  <div className="font-mono text-[10px] text-[#404040]">{offer.price_suffix}</div>
+                )}
               </div>
             </div>
-
             <div className="h-px bg-[#262626] mb-4" />
-
             <ul className="space-y-2">
-              {planData.features.map((f, i) =>
-              <li key={i} className="flex items-center gap-2">
-                  <CheckIcon className="w-3 h-3 text-[#3B82F6] flex-shrink-0" />
+              {offer.features.map((f, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <CheckIcon className="w-3 h-3 flex-shrink-0" style={{ color: offer.color }} />
                   <span className="font-mono text-[10px] text-[#666]">{f}</span>
                 </li>
-              )}
+              ))}
             </ul>
           </div>
-
-          {/* Price breakdown */}
           <div className="space-y-2 mb-6">
             <div className="flex justify-between">
-              <span className="font-mono text-[10px] text-[#404040] tracking-widest">
-                SUBTOTAL
-              </span>
-              <span className="font-mono text-[10px] text-[#666]">
-                ${planData.priceNum}
-              </span>
+              <span className="font-mono text-[10px] text-[#404040] tracking-widest">SUBTOTAL</span>
+              <span className="font-mono text-[10px] text-[#666]">${offer.price.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="font-mono text-[10px] text-[#404040] tracking-widest">
-                TAX
-              </span>
+              <span className="font-mono text-[10px] text-[#404040] tracking-widest">TAX</span>
               <span className="font-mono text-[10px] text-[#666]">$0.00</span>
             </div>
             <div className="h-px bg-[#262626]" />
             <div className="flex justify-between">
-              <span className="font-mono text-xs font-bold text-white tracking-widest">
-                TOTAL DUE TODAY
-              </span>
-              <span className="font-mono text-xs font-bold text-[#3B82F6]">
-                ${planData.priceNum}
+              <span className="font-mono text-xs font-bold text-white tracking-widest">TOTAL DUE TODAY</span>
+              <span className="font-mono text-xs font-bold" style={{ color: offer.color }}>
+                ${offer.price.toFixed(2)}
               </span>
             </div>
           </div>
-
           <div className="mt-auto pt-6 border-t border-[#262626]">
             <div className="flex items-center gap-2 mb-2">
               <ShieldCheckIcon className="w-3.5 h-3.5 text-[#404040]" />
-              <span className="font-mono text-[9px] text-[#333] tracking-widest">
-                POWERED BY STRIPE
-              </span>
+              <span className="font-mono text-[9px] text-[#333] tracking-widest">POWERED BY STRIPE</span>
             </div>
             <p className="font-mono text-[9px] text-[#262626] leading-relaxed">
-              YOUR PAYMENT IS SECURED WITH INDUSTRY-STANDARD TLS ENCRYPTION.
-              ARES AI NEVER STORES YOUR CARD DETAILS.
+              YOUR PAYMENT IS SECURED WITH INDUSTRY-STANDARD TLS ENCRYPTION. ARES AI NEVER STORES YOUR CARD DETAILS.
             </p>
           </div>
         </div>
-
-        {/* RIGHT: Payment Form */}
         <div className="bg-[#050505] p-8">
           <div className="mb-6">
-            <span className="font-mono text-[9px] text-[#404040] tracking-widest">
-              PAYMENT DETAILS
-            </span>
+            <span className="font-mono text-[9px] text-[#404040] tracking-widest">PAYMENT DETAILS</span>
           </div>
-
-          <form onSubmit={handlePay} className="space-y-5">
-            {/* Cardholder name */}
-            <div>
-              <label className="block font-mono text-[9px] text-[#666] tracking-widest mb-2">
-                CARDHOLDER NAME
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="JOHN DOE"
-                required
-                className="w-full bg-[#020202] border border-[#262626] px-4 py-3 font-mono text-sm text-white placeholder-[#2a2a2a] focus:border-[#3B82F6] focus:outline-none transition-colors tracking-wider" />
-
-            </div>
-
-            {/* Card number */}
-            <div>
-              <label className="block font-mono text-[9px] text-[#666] tracking-widest mb-2">
-                CARD NUMBER
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={cardNumber}
-                  onChange={(e) =>
-                  setCardNumber(formatCardNumber(e.target.value))
-                  }
-                  placeholder="0000 0000 0000 0000"
-                  required
-                  maxLength={19}
-                  className="w-full bg-[#020202] border border-[#262626] px-4 py-3 font-mono text-sm text-white placeholder-[#2a2a2a] focus:border-[#3B82F6] focus:outline-none transition-colors tracking-widest pr-12" />
-
-                <CreditCardIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#333]" />
-              </div>
-            </div>
-
-            {/* Expiry + CVC */}
-            <div className="grid grid-cols-2 gap-0">
-              <div>
-                <label className="block font-mono text-[9px] text-[#666] tracking-widest mb-2">
-                  EXPIRY DATE
-                </label>
-                <input
-                  type="text"
-                  value={expiry}
-                  onChange={(e) => setExpiry(formatExpiry(e.target.value))}
-                  placeholder="MM / YY"
-                  required
-                  maxLength={7}
-                  className="w-full bg-[#020202] border border-[#262626] border-r-0 px-4 py-3 font-mono text-sm text-white placeholder-[#2a2a2a] focus:border-[#3B82F6] focus:outline-none transition-colors tracking-widest" />
-
-              </div>
-              <div>
-                <label className="block font-mono text-[9px] text-[#666] tracking-widest mb-2">
-                  CVC
-                </label>
-                <input
-                  type="text"
-                  value={cvc}
-                  onChange={(e) =>
-                  setCvc(e.target.value.replace(/\D/g, '').slice(0, 4))
-                  }
-                  placeholder="000"
-                  required
-                  maxLength={4}
-                  className="w-full bg-[#020202] border border-[#262626] px-4 py-3 font-mono text-sm text-white placeholder-[#2a2a2a] focus:border-[#3B82F6] focus:outline-none transition-colors tracking-widest" />
-
-              </div>
-            </div>
-
-            {/* Billing zip */}
-            <div>
-              <label className="block font-mono text-[9px] text-[#666] tracking-widest mb-2">
-                BILLING ZIP / POSTAL CODE
-              </label>
-              <input
-                type="text"
-                placeholder="10001"
-                className="w-full bg-[#020202] border border-[#262626] px-4 py-3 font-mono text-sm text-white placeholder-[#2a2a2a] focus:border-[#3B82F6] focus:outline-none transition-colors tracking-widest" />
-
-            </div>
-
-            {/* Divider */}
-            <div className="h-px bg-[#262626]" />
-
-            {/* Order total recap */}
-            <div className="flex items-center justify-between bg-[#0a0a0a] border border-[#262626] px-4 py-3">
-              <span className="font-mono text-[10px] text-[#666] tracking-widest">
-                {planData.name}
-              </span>
-              <span className="font-mono text-sm font-bold text-white">
-                {planData.price}
-                {planData.period}
-              </span>
-            </div>
-
-            {/* Pay button */}
-            <button
-              type="submit"
-              disabled={processing}
-              className="w-full py-4 bg-[#3B82F6] text-white font-mono text-sm font-bold tracking-widest hover:bg-[#2563eb] transition-colors disabled:opacity-60 disabled:cursor-not-allowed relative overflow-hidden">
-
-              {processing ?
-              <span className="flex items-center justify-center gap-3">
-                  <span className="font-mono text-xs tracking-widest">
-                    PROCESSING PAYMENT
-                  </span>
-                </span> :
-
-              <span className="flex items-center justify-center gap-2">
-                  <LockIcon className="w-3.5 h-3.5" />
-                  PAY & UNLOCK QUOTA
-                </span>
-              }
-              {processing &&
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#1d4ed8] overflow-hidden">
-                  <div
-                  className="h-full bg-white/40"
-                  style={{
-                    animation: 'scan-pulse 1.2s linear infinite'
-                  }} />
-
-                </div>
-              }
-            </button>
-
-            <p className="font-mono text-[9px] text-[#262626] text-center tracking-wider">
-              BY COMPLETING THIS PURCHASE YOU AGREE TO OUR TERMS OF SERVICE
-            </p>
-          </form>
+          <Elements stripe={stripePromise}>
+            <CheckoutForm offer={offer} intentData={intentData} onSuccess={handleSuccess} />
+          </Elements>
         </div>
       </div>
-
       <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-center gap-6">
         <span className="font-mono text-[9px] text-[#1a1a1a]">VISA</span>
         <span className="font-mono text-[9px] text-[#1a1a1a]">MASTERCARD</span>
         <span className="font-mono text-[9px] text-[#1a1a1a]">AMEX</span>
-        <span className="font-mono text-[9px] text-[#1a1a1a]">
-          STRIPE SECURED
-        </span>
+        <span className="font-mono text-[9px] text-[#1a1a1a]">STRIPE SECURED</span>
       </div>
-    </div>);
-
+    </div>
+  );
 }

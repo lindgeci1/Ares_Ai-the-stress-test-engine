@@ -41,6 +41,8 @@ export function Layout({ children }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   // Mobile: sidebar open state
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Logout confirmation modal
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   // Close mobile sidebar on route change
   useEffect(() => {
     setMobileOpen(false);
@@ -54,6 +56,9 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+  const confirmLogout = () => {
     logout();
     navigate('/');
   };
@@ -62,6 +67,32 @@ export function Layout({ children }: LayoutProps) {
   location.pathname.startsWith(path.split('/').slice(0, 2).join('/'));
   return (
     <div className="flex h-screen w-full bg-[#050505] overflow-hidden">
+      {/* ── LOGOUT CONFIRMATION MODAL ── */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <div className="bg-[#0a0a0a] border border-[#262626] w-80 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <LogOutIcon className="w-4 h-4 text-[#EF4444]" />
+              <span className="font-mono text-xs font-bold text-white tracking-widest">CONFIRM LOGOUT</span>
+            </div>
+            <p className="font-mono text-[11px] text-[#666] tracking-wider mb-6">
+              ARE YOU SURE YOU WANT TO LOG OUT OF YOUR SESSION?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 py-2.5 border border-[#262626] text-[#666] font-mono text-[10px] tracking-widest hover:border-[#404040] hover:text-[#999] transition-colors">
+                CANCEL
+              </button>
+              <button
+                onClick={confirmLogout}
+                className="flex-1 py-2.5 bg-[#EF4444] text-white font-mono text-[10px] font-bold tracking-widest hover:bg-[#dc2626] transition-colors">
+                LOGOUT
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── MOBILE OVERLAY ── */}
       {mobileOpen &&
       <div

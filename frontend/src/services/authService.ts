@@ -1,7 +1,14 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:3000/api/v1';
-const TOKEN_COOKIE_NAME = 'jwt_token';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+
+let inMemoryToken: string | null = null;
+
+export const setToken = (token: string | null): void => {
+  inMemoryToken = token;
+};
+
+export const getToken = (): string | null => inMemoryToken;
 
 export interface Role {
   id: number;
@@ -43,6 +50,49 @@ export interface UpdateUserData {
   status?: string;
 }
 
+export interface Offer {
+  id: number;
+  name: string;
+  tier: number;
+  tier_label: string;
+  price: number;
+  price_label: string;
+  price_suffix: string;
+  features: string[];
+  color: string;
+  is_recommended: boolean;
+  is_active: boolean;
+  sort_order: number;
+  cta_label: string;
+  cta_type: string;
+  cta_link: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentIntentResult {
+  client_secret: string;
+  payment_intent_id: string;
+  amount_cents: number;
+  currency: string;
+  offer_name: string;
+  amount_display: number;
+}
+
+export interface Payment {
+  id: number;
+  user_id: number;
+  offer_id: number | null;
+  offer?: Offer;
+  stripe_session_id: string;
+  amount_paid: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  // Admin-only fields (preloaded)
+  user?: User;
+}
+
 export interface Document {
   id: number;
   user_id: number;
@@ -56,28 +106,6 @@ export interface Document {
   updated_at: string;
 }
 
-// Cookie helpers
-const setCookie = (name: string, value: string): void => {
-  // Note: Secure flag requires HTTPS in production. For localhost, browsers allow it.
-  document.cookie = `${name}=${value};path=/;Secure;SameSite=Lax`;
-};
-
-const getCookie = (name: string): string | null => {
-  const nameEQ = `${name}=`;
-  const cookies = document.cookie.split(';');
-  for (let cookie of cookies) {
-    cookie = cookie.trim();
-    if (cookie.startsWith(nameEQ)) {
-      return cookie.substring(nameEQ.length);
-    }
-  }
-  return null;
-};
-
-const clearCookie = (name: string): void => {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;Secure;SameSite=Lax`;
-};
-
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -86,9 +114,9 @@ const axiosInstance = axios.create({
   withCredentials: true, // Enable sending cookies with requests
 });
 
-// Add Authorization header with JWT token from cookies
+// Add Authorization header with JWT token from memory
 axiosInstance.interceptors.request.use((config) => {
-  const token = getCookie(TOKEN_COOKIE_NAME);
+  const token = getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -112,8 +140,8 @@ axiosInstance.interceptors.response.use(
         const newToken = response.data.token;
 
         if (newToken) {
-          // Update token in cookie
-          setCookie(TOKEN_COOKIE_NAME, newToken);
+          // Update token in memory
+          setToken(newToken);
           // Update authorization header for retry
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           // Retry original request
@@ -121,8 +149,7 @@ axiosInstance.interceptors.response.use(
         }
       } catch (refreshError) {
         // Refresh failed - session expired
-        clearCookie(TOKEN_COOKIE_NAME);
-        clearCookie('refresh_token');
+        setToken(null);
         // Dispatch custom event that components can listen to
         window.dispatchEvent(new CustomEvent('SESSION_EXPIRED'));
         return Promise.reject(refreshError);
@@ -148,13 +175,26 @@ export const authService = {
   async login(data: LoginData): Promise<LoginResponse> {
     try {
       const response = await axiosInstance.post<LoginResponse>('/auth/login', data);
-      // Save JWT token to cookie from response
+      // Save JWT token to memory from response
       if (response.data.token) {
-        setCookie(TOKEN_COOKIE_NAME, response.data.token);
+        setToken(response.data.token);
       }
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Login failed');
+    }
+  },
+
+  async refreshToken(): Promise<string> {
+    try {
+      const response = await axiosInstance.post<{ token: string }>('/auth/refresh');
+      const newToken = response.data.token;
+
+      setToken(newToken);
+      return newToken;
+    } catch (error) {
+      setToken(null);
+      throw error;
     }
   },
 
@@ -202,14 +242,10 @@ export const authService = {
   async logout(): Promise<{ message: string }> {
     try {
       const response = await axiosInstance.post<{ message: string }>('/auth/logout');
-      // Clear both JWT and refresh token cookies
-      clearCookie(TOKEN_COOKIE_NAME);
-      clearCookie('refresh_token');
+      setToken(null);
       return response.data;
     } catch (error: any) {
-      // Clear cookies even if logout fails
-      clearCookie(TOKEN_COOKIE_NAME);
-      clearCookie('refresh_token');
+      setToken(null);
       throw new Error(error.response?.data?.error || 'Logout failed');
     }
   },
@@ -323,12 +359,85 @@ export const authService = {
     }
   },
 
+  // Get active offers (user-facing billing page)
+  async getActiveOffers(): Promise<Offer[]> {
+    try {
+      const response = await axiosInstance.get<Offer[]>('/offers');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch offers');
+    }
+  },
+
+  // Get all offers including disabled ones (admin only)
+  async getAllOffersAdmin(): Promise<Offer[]> {
+    try {
+      const response = await axiosInstance.get<Offer[]>('/admin/offers');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch admin offers');
+    }
+  },
+
+  // Toggle offer active status (admin only)
+  async toggleOffer(id: number): Promise<Offer> {
+    try {
+      const response = await axiosInstance.put<Offer>(`/admin/offers/${id}/toggle`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to toggle offer');
+    }
+  },
+
+  // Create a Stripe PaymentIntent for an offer
+  async createPaymentIntent(offerId: number): Promise<PaymentIntentResult> {
+    try {
+      const response = await axiosInstance.post<PaymentIntentResult>('/payments/intent', { offer_id: offerId });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to create payment intent');
+    }
+  },
+
+  // Confirm payment after Stripe client-side confirmation succeeds
+  async confirmPayment(paymentIntentId: string, offerId: number): Promise<Payment> {
+    try {
+      const response = await axiosInstance.post<Payment>('/payments/confirm', {
+        payment_intent_id: paymentIntentId,
+        offer_id: offerId,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to confirm payment');
+    }
+  },
+
+  // Get the authenticated user's payment history
+  async getPaymentHistory(): Promise<Payment[]> {
+    try {
+      const response = await axiosInstance.get<Payment[]>('/payments/history');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch payment history');
+    }
+  },
+
+  // Get all payments (admin only)
+  async getAllPayments(): Promise<Payment[]> {
+    try {
+      const response = await axiosInstance.get<Payment[]>('/admin/payments');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch payments');
+    }
+  },
+
   // Token helpers
   getToken(): string | null {
-    return getCookie(TOKEN_COOKIE_NAME);
+    return getToken();
   },
 
   clearToken(): void {
-    clearCookie(TOKEN_COOKIE_NAME);
+    setToken(null);
   },
 };
