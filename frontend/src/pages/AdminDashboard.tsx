@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIcon,
-  UsersIcon,
-  FileTextIcon,
   DollarSignIcon,
   TrendingDownIcon,
   TrendingUpIcon,
-  ServerIcon,
-  AlertTriangleIcon } from
+  AlertTriangleIcon,
+  PackageIcon,
+  ToggleLeftIcon,
+  ToggleRightIcon } from
 'lucide-react';
+import { authService, Offer } from '../services/authService';
 type MetricCard = {
   label: string;
   value: string;
@@ -111,10 +112,35 @@ const CHURN_DATA = [
 
 export function AdminDashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(true);
+  const [toggling, setToggling] = useState<number | null>(null);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    authService.getAllOffersAdmin()
+      .then(setOffers)
+          .catch((error) => {
+            console.error('Failed to load admin offers:', error);
+          })
+      .finally(() => setOffersLoading(false));
+  }, []);
+
+  const handleToggle = async (id: number) => {
+    setToggling(id);
+    try {
+      const updated = await authService.toggleOffer(id);
+      setOffers(prev => prev.map(o => o.id === updated.id ? updated : o));
+    } catch {
+      // silently ignore
+    } finally {
+      setToggling(null);
+    }
+  };
   return (
     <div className="p-6 min-h-full">
       {/* Header */}
@@ -312,6 +338,97 @@ export function AdminDashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── SUBSCRIPTION PACKAGES ── */}
+      <div className="border border-[#262626] mt-6">
+        <div className="px-4 py-3 border-b border-[#262626] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <PackageIcon className="w-3.5 h-3.5 text-[#3B82F6]" />
+            <span className="font-mono text-[10px] text-[#666] tracking-widest">
+              SUBSCRIPTION PACKAGES
+            </span>
+          </div>
+          <span className="font-mono text-[9px] text-[#404040] tracking-widest">
+            TOGGLE TO SHOW / HIDE FROM USERS
+          </span>
+        </div>
+
+        {offersLoading ? (
+          <div className="p-6 text-center">
+            <div className="w-6 h-6 border border-[#EF4444] border-t-transparent animate-spin mx-auto mb-2" />
+            <p className="font-mono text-[9px] text-[#404040] tracking-widest">LOADING PACKAGES...</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#1a1a1a]">
+            {offers.map(offer => (
+              <div key={offer.id} className="flex items-center gap-4 px-4 py-4">
+                {/* Color dot + name */}
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div
+                    className="w-2 h-2 flex-shrink-0"
+                    style={{ backgroundColor: offer.color }} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-mono text-[9px] text-[#404040] tracking-widest">
+                        {offer.tier_label}
+                      </span>
+                      {offer.is_recommended && (
+                        <span className="font-mono text-[8px] font-bold text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/30 px-1.5 py-0.5 tracking-widest">
+                          RECOMMENDED
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-sm font-bold text-white tracking-wide">
+                      {offer.name}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Price */}
+                <div className="text-right flex-shrink-0 w-24">
+                  <span
+                    className="font-mono text-base font-bold"
+                    style={{ color: offer.color }}>
+                    {offer.price_label}
+                  </span>
+                  {offer.price_suffix && (
+                    <span className="font-mono text-[9px] text-[#404040] ml-1">
+                      {offer.price_suffix}
+                    </span>
+                  )}
+                </div>
+
+                {/* Features count */}
+                <div className="flex-shrink-0 w-28 text-right">
+                  <span className="font-mono text-[9px] text-[#404040] tracking-widest">
+                    {offer.features.length} FEATURES
+                  </span>
+                </div>
+
+                {/* Status + Toggle */}
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className={`font-mono text-[9px] font-bold tracking-widest ${offer.is_active ? 'text-[#22C55E]' : 'text-[#404040]'}`}>
+                    {offer.is_active ? 'ACTIVE' : 'DISABLED'}
+                  </span>
+                  <button
+                    onClick={() => handleToggle(offer.id)}
+                    disabled={toggling === offer.id}
+                    title={offer.is_active ? 'Disable this offer' : 'Enable this offer'}
+                    className={`flex items-center transition-colors disabled:opacity-50 ${offer.is_active ? 'text-[#22C55E] hover:text-[#EF4444]' : 'text-[#404040] hover:text-[#22C55E]'}`}>
+                    {toggling === offer.id ? (
+                      <div className="w-5 h-5 border border-current border-t-transparent animate-spin" />
+                    ) : offer.is_active ? (
+                      <ToggleRightIcon className="w-6 h-6" />
+                    ) : (
+                      <ToggleLeftIcon className="w-6 h-6" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>);
 

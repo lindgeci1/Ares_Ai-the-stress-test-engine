@@ -16,6 +16,8 @@ import { Billing } from './pages/Billing';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminUsers } from './pages/AdminUsers';
 import { AdminDocuments } from './pages/AdminDocuments';
+import { AdminPackages } from './pages/AdminPackages';
+import { AdminPayments } from './pages/AdminPayments';
 export function App() {
   return (
     <AuthProvider>
@@ -76,6 +78,26 @@ export function App() {
             }
           />
 
+          <Route
+            path="/admin/packages"
+            element={
+              <ProtectedRoute requiredRole="Admin">
+                <AdminLayout>
+                  <AdminPackages />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/payments"
+            element={
+              <ProtectedRoute requiredRole="Admin">
+                <AdminLayout>
+                  <AdminPayments />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/admin"
             element={

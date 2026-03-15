@@ -149,6 +149,14 @@ func (r *UserRepository) Update(id uint, email *string, subscriptionTier *string
 	return r.GetByID(id)
 }
 
+// UpdateSubscriptionTier updates the subscription tier for a user
+func (r *UserRepository) UpdateSubscriptionTier(userID uint, tier string) error {
+	if err := r.db.Model(&models.User{}).Where("id = ?", userID).Update("subscription_tier", tier).Error; err != nil {
+		return fmt.Errorf("update subscription tier: %w", err)
+	}
+	return nil
+}
+
 // Delete deletes a user by ID and clears associations
 func (r *UserRepository) Delete(id uint) error {
 	// Use Select to delete associations (user_roles will be cleared by GORM)
@@ -182,6 +190,7 @@ func (r *UserRepository) DeleteRefreshToken(token string) error {
 
 	return nil
 }
+
 // GetRefreshToken retrieves a refresh token by its value with associated user and roles
 func (r *UserRepository) GetRefreshToken(token string) (*models.RefreshToken, *models.User, error) {
 	var refreshToken models.RefreshToken

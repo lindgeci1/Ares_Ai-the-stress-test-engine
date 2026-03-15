@@ -4,6 +4,8 @@ import {
   ActivityIcon,
   UsersIcon,
   FileTextIcon,
+  PackageIcon,
+  CreditCardIcon,
   ShieldAlertIcon,
   LogOutIcon,
   PanelLeftIcon,
@@ -31,6 +33,16 @@ const adminNavItems = [
   path: '/admin/documents',
   label: 'DOCUMENTS',
   icon: FileTextIcon
+},
+{
+  path: '/admin/packages',
+  label: 'PACKAGES',
+  icon: PackageIcon
+},
+{
+  path: '/admin/payments',
+  label: 'PAYMENTS',
+  icon: CreditCardIcon
 }];
 
 export function AdminLayout({ children }: AdminLayoutProps) {
@@ -39,6 +51,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const { logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
@@ -49,7 +62,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+  const confirmLogout = async () => {
     try {
       await authService.logout();
     } catch (err) {
@@ -61,6 +77,32 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   };
   return (
     <div className="flex h-screen w-full bg-[#050505] overflow-hidden">
+      {/* ── LOGOUT CONFIRMATION MODAL ── */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <div className="bg-[#0a0a0a] border border-[#EF4444]/30 w-80 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <LogOutIcon className="w-4 h-4 text-[#EF4444]" />
+              <span className="font-mono text-xs font-bold text-white tracking-widest">CONFIRM LOGOUT</span>
+            </div>
+            <p className="font-mono text-[11px] text-[#666] tracking-wider mb-6">
+              ARE YOU SURE YOU WANT TO END YOUR ADMIN SESSION?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 py-2.5 border border-[#262626] text-[#666] font-mono text-[10px] tracking-widest hover:border-[#404040] hover:text-[#999] transition-colors">
+                CANCEL
+              </button>
+              <button
+                onClick={confirmLogout}
+                className="flex-1 py-2.5 bg-[#EF4444] text-white font-mono text-[10px] font-bold tracking-widest hover:bg-[#dc2626] transition-colors">
+                LOGOUT
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── MOBILE OVERLAY ── */}
       {mobileOpen &&
       <div

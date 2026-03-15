@@ -1,4 +1,4 @@
-import React, { useState, createContext, useContext, useEffect, ReactNode } from 'react';
+import { useState, createContext, useContext, useEffect, ReactNode } from 'react';
 import { User, authService } from '../services/authService';
 
 type AuthContextType = {
@@ -32,22 +32,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load user from backend on mount using JWT token
+  // Load user from backend on mount using silent refresh
   useEffect(() => {
     const loadUser = async () => {
-      const token = authService.getToken();
-      if (token) {
-        try {
-          // Fetch current user from backend - this validates the JWT
-          const currentUser = await authService.getCurrentUser();
-          setUser(currentUser);
-        } catch (error) {
-          // Token invalid or expired, clear it
-          authService.clearToken();
-          setUser(null);
-        }
+      try {
+        await authService.refreshToken();
+        const currentUser = await authService.getCurrentUser();
+        setUser(currentUser);
+      } catch (error) {
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     loadUser();
@@ -59,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await authService.logout(); // Call backend to clear cookies
+      await authService.logout();
     } catch (error) {
       console.error('Logout error:', error);
     }
