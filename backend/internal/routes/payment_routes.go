@@ -14,6 +14,7 @@ func SetupPaymentRoutes(api fiber.Router, paymentHandler *handlers.PaymentHandle
 	payments.Post("/intent", paymentHandler.CreatePaymentIntent)
 	payments.Post("/confirm", paymentHandler.ConfirmPayment)
 	payments.Get("/history", paymentHandler.GetMyPayments)
+	payments.Get("/:id/receipt", paymentHandler.GetReceiptURL)
 
 	// Admin-only routes
 	admin := api.Group("/admin", middleware.RequireRole("Admin"))

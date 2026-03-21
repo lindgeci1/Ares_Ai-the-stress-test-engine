@@ -6,7 +6,8 @@ import {
   ClockIcon,
   ArchiveIcon,
   ActivityIcon,
-  UploadIcon } from
+  UploadIcon,
+  RefreshCwIcon } from
 'lucide-react';
 type AuditStatus = 'ACTIVE' | 'ARCHIVED' | 'PROCESSING';
 type AuditCard = {
@@ -129,6 +130,15 @@ function ScoreBar({ score, status }: {score: number;status: AuditStatus;}) {
 export function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [filter, setFilter] = useState<'ALL' | AuditStatus>('ALL');
+  const [reloading, setReloading] = useState(false);
+
+  const handleReload = async () => {
+    setReloading(true);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    setCurrentTime(new Date());
+    setReloading(false);
+  };
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -152,6 +162,14 @@ export function Dashboard() {
             <h1 className="font-sans text-xl font-bold text-white tracking-wide">
               COMMAND CENTER
             </h1>
+            <button
+              onClick={handleReload}
+              disabled={reloading}
+              className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
+            >
+              <RefreshCwIcon className={`w-3 h-3 ${reloading ? 'animate-spin' : ''}`} />
+              REFRESH
+            </button>
           </div>
           <p className="font-mono text-[10px] text-[#404040] tracking-widest">
             {currentTime.toISOString().replace('T', ' ').slice(0, 19)} UTC —

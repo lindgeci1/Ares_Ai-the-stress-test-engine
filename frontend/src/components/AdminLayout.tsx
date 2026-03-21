@@ -6,6 +6,7 @@ import {
   FileTextIcon,
   PackageIcon,
   CreditCardIcon,
+  KeyIcon,
   ShieldAlertIcon,
   LogOutIcon,
   PanelLeftIcon,
@@ -15,6 +16,7 @@ import {
 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
+import { useToast } from '../context/useToast';
 type AdminLayoutProps = {
   children: React.ReactNode;
 };
@@ -43,12 +45,18 @@ const adminNavItems = [
   path: '/admin/payments',
   label: 'PAYMENTS',
   icon: CreditCardIcon
+},
+{
+  path: '/admin/sessions',
+  label: 'SESSIONS',
+  icon: KeyIcon
 }];
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout } = useAuth();
+  const { showToast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -71,6 +79,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
+      showToast('SESSION TERMINATED', 'info');
       logout();
       navigate('/');
     }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ZapIcon,
   EyeIcon,
@@ -8,8 +8,11 @@ import {
 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
+import { useToast } from '../context/useToast';
 
 export function Auth() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -18,6 +21,8 @@ export function Auth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
+  const { showToast } = useToast();
+  const resetSuccess = new URLSearchParams(location.search).get('reset') === 'success';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +37,7 @@ export function Auth() {
         // Fetch full user data with roles to ensure accurate role detection
         const fullUser = await authService.getCurrentUser();
         login(fullUser);
+        showToast('SESSION INITIATED', 'success');
         
         // PublicRoute will handle redirect based on role
       } else {
@@ -48,10 +54,12 @@ export function Auth() {
         // Fetch full user data with roles to ensure accurate role detection
         const fullUser = await authService.getCurrentUser();
         login(fullUser);
+        showToast('ACCOUNT CREATED', 'success');
         
         // PublicRoute will handle redirect based on role
       }
     } catch (err: any) {
+      showToast(err.message || (mode === 'login' ? 'Login failed' : 'Registration failed'), 'error');
       // Handle specific error messages from backend
       if (err.message) {
         setError(err.message);
@@ -125,6 +133,12 @@ export function Auth() {
             </div>
           )}
 
+          {resetSuccess && mode === 'login' && (
+            <div className="mb-4 p-3 bg-[#22C55E]/10 border border-[#22C55E] text-[#22C55E] font-mono text-xs rounded">
+              Password reset successful. You can log in with your new password.
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'register' &&
             <div>
@@ -182,16 +196,15 @@ export function Auth() {
               </div>
             </div>
 
-            {mode === 'login' &&
             <div className="text-right">
-                <button
+              <button
                 type="button"
-                className="font-mono text-[10px] text-[#404040] hover:text-[#666] tracking-wider">
-
-                  FORGOT ACCESS KEY?
-                </button>
-              </div>
-            }
+                onClick={() => navigate('/forgot-password')}
+                className="font-mono text-[10px] text-[#404040] hover:text-[#666] tracking-wider"
+              >
+                FORGOT PASSWORD?
+              </button>
+            </div>
 
             <button
               type="submit"

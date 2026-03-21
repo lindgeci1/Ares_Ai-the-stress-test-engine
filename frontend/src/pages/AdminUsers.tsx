@@ -10,9 +10,14 @@ import {
   UserXIcon,
   UserCheckIcon,
   AlertTriangleIcon,
-  ShieldAlertIcon } from
+  ShieldAlertIcon,
+  RefreshCwIcon } from
 'lucide-react';
 import { authService, User as APIUser } from '../services/authService';
+import { dataCache } from '../utils/dataCache';
+import { useToast } from '../context/useToast';
+
+const USERS_CACHE_KEY = 'admin:users';
 
 type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'PENDING';
 type UserPlan = 'FREE' | 'PRO' | 'ENTERPRISE';
@@ -23,7 +28,8 @@ type User = {
   email: string;
   plan: UserPlan;
   status: UserStatus;
-  audits: number;
+  auditsPerformed: number;
+  auditLimit: number;
   joined: string;
   lastActive: string;
   apiUser: APIUser; // Store original API user data
@@ -37,11 +43,14 @@ type TempUserModal = {
 };
 
 export function AdminUsers() {
-  const [users, setUsers] = useState<User[]>([]);
+  const { showToast } = useToast();
+  const cachedUsers = dataCache.get<User[]>(USERS_CACHE_KEY);
+  const [users, setUsers] = useState<User[]>(cachedUsers ?? []);
   const [search, setSearch] = useState('');
   const [viewUser, setViewUser] = useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedUsers);
+  const [reloading, setReloading] = useState(false);
   const [error, setError] = useState('');
   const [tempModal, setTempModal] = useState<TempUserModal>({
     show: false,
@@ -56,9 +65,26 @@ export function AdminUsers() {
     fetchUsers();
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (
+    options: { forceRefresh?: boolean; isReload?: boolean } = {}
+  ) => {
+    const { forceRefresh = false, isReload = false } = options;
+
+    if (!forceRefresh) {
+      const cached = dataCache.get<User[]>(USERS_CACHE_KEY);
+      if (cached) {
+        setUsers(cached);
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
-      setLoading(true);
+      if (isReload) {
+        setReloading(true);
+      } else {
+        setLoading(true);
+      }
       setError('');
       const apiUsers = await authService.getAllUsers();
       
@@ -69,18 +95,31 @@ export function AdminUsers() {
         email: apiUser.email,
         plan: getPlanFromTier(apiUser.subscription_tier),
         status: 'ACTIVE' as UserStatus,
-        audits: 0, // This would come from user_usages table ideally
+        auditsPerformed: apiUser.user_usage?.audits_performed ?? 0,
+        auditLimit: apiUser.user_usage?.audit_limit ?? 0,
         joined: new Date(apiUser.created_at).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }),
         lastActive: new Date(apiUser.updated_at).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }),
         apiUser,
       }));
 
       setUsers(transformedUsers);
+      dataCache.set(USERS_CACHE_KEY, transformedUsers);
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch users');
+      const message = err.message || 'Failed to fetch users';
+      setError(message);
+      showToast(message, 'error');
     } finally {
-      setLoading(false);
+      if (isReload) {
+        setReloading(false);
+      } else {
+        setLoading(false);
+      }
     }
+  };
+
+  const handleReload = async () => {
+    dataCache.invalidate(USERS_CACHE_KEY);
+    await fetchUsers({ forceRefresh: true, isReload: true });
   };
 
   const getPlanFromTier = (tier: string): UserPlan => {
@@ -92,7 +131,9 @@ export function AdminUsers() {
   const filtered = users.filter(
     (u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase())
+      u.email.toLowerCase().includes(search.toLowerCase()) ||
+      u.plan.toLowerCase().includes(search.toLowerCase()) ||
+      u.status.toLowerCase().includes(search.toLowerCase())
   );
 
   const handleSuspendToggle = async (user: User) => {
@@ -104,13 +145,15 @@ export function AdminUsers() {
       await authService.updateUser(user.id, { status: backendStatus });
       
       // Update local state
-      setUsers((prev) =>
-        prev.map((u) =>
+      setUsers((prev) => {
+        const next = prev.map((u) =>
           u.id === user.id
             ? { ...u, status: newStatus }
             : u
-        )
-      );
+        );
+        dataCache.set(USERS_CACHE_KEY, next);
+        return next;
+      });
       
       // Keep view modal in sync
       if (viewUser?.id === user.id) {
@@ -120,8 +163,11 @@ export function AdminUsers() {
             : prev
         );
       }
+      showToast('USER STATUS UPDATED', 'success');
     } catch (err: any) {
-      setError(err.message || 'Failed to update user');
+      const message = err.message || 'Failed to update user';
+      setError(message);
+      showToast(message, 'error');
     }
   };
 
@@ -131,11 +177,18 @@ export function AdminUsers() {
       await authService.deleteUser(user.id);
       
       // Update local state
-      setUsers((prev) => prev.filter((u) => u.id !== user.id));
+      setUsers((prev) => {
+        const next = prev.filter((u) => u.id !== user.id);
+        dataCache.set(USERS_CACHE_KEY, next);
+        return next;
+      });
       setDeleteTarget(null);
       setViewUser(null);
+      showToast('USER DELETED', 'success');
     } catch (err: any) {
-      setError(err.message || 'Failed to delete user');
+      const message = err.message || 'Failed to delete user';
+      setError(message);
+      showToast(message, 'error');
     }
   };
 
@@ -176,6 +229,14 @@ export function AdminUsers() {
             <h1 className="font-sans text-xl font-bold text-white tracking-wide">
               ENTITY MANAGEMENT
             </h1>
+            <button
+              onClick={handleReload}
+              disabled={loading || reloading}
+              className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
+            >
+              <RefreshCwIcon className={`w-3 h-3 ${reloading ? 'animate-spin' : ''}`} />
+              REFRESH
+            </button>
           </div>
           <p className="font-mono text-[10px] text-[#404040] tracking-widest">
             {users.length} REGISTERED OPERATORS —{' '}
@@ -227,7 +288,7 @@ export function AdminUsers() {
               'OPERATOR',
               'PLAN',
               'STATUS',
-              'AUDITS',
+              'AUDITS USED',
               'JOINED',
               'LAST ACTIVE',
               'ACTIONS'].
@@ -248,7 +309,7 @@ export function AdminUsers() {
                 colSpan={8}
                 className="px-4 py-8 text-center font-mono text-[10px] text-[#333]">
 
-                  NO OPERATORS FOUND
+                  NO RESULTS FOUND
                 </td>
               </tr>
             }
@@ -283,7 +344,7 @@ export function AdminUsers() {
                   </span>
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-white">
-                  {user.audits}
+                  {user.auditsPerformed} / {user.auditLimit}
                 </td>
                 <td className="px-4 py-3 font-mono text-[10px] text-[#666]">
                   {user.joined}
@@ -362,7 +423,8 @@ export function AdminUsers() {
             ['EMAIL ADDRESS', viewUser.email],
             ['PLAN', viewUser.plan],
             ['STATUS', viewUser.status],
-            ['TOTAL AUDITS', String(viewUser.audits)],
+            ['AUDITS PERFORMED', String(viewUser.auditsPerformed)],
+            ['AUDIT LIMIT', String(viewUser.auditLimit)],
             ['JOINED', viewUser.joined],
             ['LAST ACTIVE', viewUser.lastActive]] as
             [string, string][]).

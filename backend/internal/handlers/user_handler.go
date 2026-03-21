@@ -453,3 +453,29 @@ func (h *UserHandler) Refresh(c *fiber.Ctx) error {
 		"message": "Token refreshed successfully",
 	})
 }
+
+// GetAllSessions retrieves all refresh-token sessions (admin only).
+func (h *UserHandler) GetAllSessions(c *fiber.Ctx) error {
+	sessions, err := h.service.GetAllSessions()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(sessions)
+}
+
+// ClearExpiredSessions deletes all expired refresh-token sessions (admin only).
+func (h *UserHandler) ClearExpiredSessions(c *fiber.Ctx) error {
+	deleted, err := h.service.ClearExpiredSessions()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"deleted": deleted,
+	})
+}

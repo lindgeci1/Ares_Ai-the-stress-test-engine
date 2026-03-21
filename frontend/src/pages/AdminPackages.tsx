@@ -6,30 +6,84 @@ import {
   LockIcon,
   CheckIcon,
   ArrowRightIcon,
+  RefreshCwIcon,
 } from 'lucide-react';
 import { authService, Offer } from '../services/authService';
+import { dataCache } from '../utils/dataCache';
+import { useToast } from '../context/useToast';
+
+const PACKAGES_CACHE_KEY = 'admin:packages';
 
 export function AdminPackages() {
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
+  const cachedOffers = dataCache.get<Offer[]>(PACKAGES_CACHE_KEY);
+  const [offers, setOffers] = useState<Offer[]>(cachedOffers ?? []);
+  const [loading, setLoading] = useState(!cachedOffers);
+  const [reloading, setReloading] = useState(false);
   const [toggling, setToggling] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const loadOffers = async (
+    options: { forceRefresh?: boolean; isReload?: boolean } = {}
+  ) => {
+    const { forceRefresh = false, isReload = false } = options;
+
+    if (!forceRefresh) {
+      const cached = dataCache.get<Offer[]>(PACKAGES_CACHE_KEY);
+      if (cached) {
+        setOffers(cached);
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (isReload) {
+      setReloading(true);
+    } else {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      const data = await authService.getAllOffersAdmin();
+      setOffers(data);
+      dataCache.set(PACKAGES_CACHE_KEY, data);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load packages';
+      setError(message);
+      showToast(message, 'error');
+    } finally {
+      if (isReload) {
+        setReloading(false);
+      } else {
+        setLoading(false);
+      }
+    }
+  };
+
   useEffect(() => {
-    authService
-      .getAllOffersAdmin()
-      .then(setOffers)
-      .catch((err) => setError(err.message ?? 'Failed to load packages'))
-      .finally(() => setLoading(false));
+    loadOffers();
   }, []);
+
+  const handleReload = async () => {
+    dataCache.invalidate(PACKAGES_CACHE_KEY);
+    await loadOffers({ forceRefresh: true, isReload: true });
+  };
 
   const handleToggle = async (id: number) => {
     setToggling(id);
     try {
       const updated = await authService.toggleOffer(id);
-      setOffers((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+      setOffers((prev) => {
+        const next = prev.map((o) => (o.id === updated.id ? updated : o));
+        dataCache.set(PACKAGES_CACHE_KEY, next);
+        return next;
+      });
+      showToast(updated.is_active ? 'PACKAGE ENABLED' : 'PACKAGE DISABLED', updated.is_active ? 'success' : 'info');
     } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Toggle failed';
       console.error('Toggle failed:', err);
+      showToast(message, 'error');
     } finally {
       setToggling(null);
     }
@@ -44,6 +98,14 @@ export function AdminPackages() {
           <h1 className="font-sans text-xl font-bold text-white tracking-wide">
             SUBSCRIPTION PACKAGES
           </h1>
+          <button
+            onClick={handleReload}
+            disabled={loading || reloading}
+            className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
+          >
+            <RefreshCwIcon className={`w-3 h-3 ${reloading ? 'animate-spin' : ''}`} />
+            REFRESH
+          </button>
         </div>
         <p className="font-mono text-[10px] text-[#404040] tracking-wider">
           ENABLE OR DISABLE PLANS — DISABLED PLANS ARE HIDDEN FROM USERS

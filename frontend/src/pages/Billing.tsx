@@ -1,32 +1,127 @@
 import { useEffect, useState } from 'react';
-import { CheckIcon, ZapIcon, ArrowRightIcon } from 'lucide-react';
+import { CheckIcon, ZapIcon, ArrowRightIcon, RefreshCwIcon, SearchIcon, DownloadIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { authService, Offer, Payment } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
+import { dataCache } from '../utils/dataCache';
+import { useToast } from '../context/useToast';
+
+const OFFERS_CACHE_KEY = 'user:offers';
+const PAYMENTS_CACHE_KEY = 'user:payments';
+
 export function Billing() {
   const { user } = useAuth();
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [offersLoading, setOffersLoading] = useState(true);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [paymentsLoading, setPaymentsLoading] = useState(true);
+  const { showToast } = useToast();
+  const cachedOffers = dataCache.get<Offer[]>(OFFERS_CACHE_KEY);
+  const cachedPayments = dataCache.get<Payment[]>(PAYMENTS_CACHE_KEY);
+  const [offers, setOffers] = useState<Offer[]>(cachedOffers ?? []);
+  const [offersLoading, setOffersLoading] = useState(!cachedOffers);
+  const [payments, setPayments] = useState<Payment[]>(cachedPayments ?? []);
+  const [paymentsLoading, setPaymentsLoading] = useState(!cachedPayments);
+  const [reloading, setReloading] = useState(false);
+  const [paymentsSearch, setPaymentsSearch] = useState('');
+
+  const loadBillingData = async (
+    options: { forceRefresh?: boolean; isReload?: boolean } = {}
+  ) => {
+    const { forceRefresh = false, isReload = false } = options;
+    const cachedOffersData = !forceRefresh ? dataCache.get<Offer[]>(OFFERS_CACHE_KEY) : undefined;
+    const cachedPaymentsData = !forceRefresh ? dataCache.get<Payment[]>(PAYMENTS_CACHE_KEY) : undefined;
+
+    if (cachedOffersData) {
+      setOffers(cachedOffersData);
+      setOffersLoading(false);
+    }
+
+    if (cachedPaymentsData) {
+      setPayments(cachedPaymentsData);
+      setPaymentsLoading(false);
+    }
+
+    const needsOffers = forceRefresh || !cachedOffersData;
+    const needsPayments = forceRefresh || !cachedPaymentsData;
+
+    if (!needsOffers && !needsPayments) {
+      return;
+    }
+
+    if (isReload) {
+      setReloading(true);
+    } else {
+      if (needsOffers) {
+        setOffersLoading(true);
+      }
+      if (needsPayments) {
+        setPaymentsLoading(true);
+      }
+    }
+
+    try {
+      const requests: Promise<void>[] = [];
+
+      if (needsOffers) {
+        requests.push(
+          authService
+            .getActiveOffers()
+            .then((data) => {
+              setOffers(data);
+              dataCache.set(OFFERS_CACHE_KEY, data);
+            })
+            .catch((error) => {
+              console.error('Failed to load offers:', error);
+            })
+            .finally(() => {
+              setOffersLoading(false);
+            })
+        );
+      }
+
+      if (needsPayments) {
+        requests.push(
+          authService
+            .getPaymentHistory()
+            .then((data) => {
+              setPayments(data);
+              dataCache.set(PAYMENTS_CACHE_KEY, data);
+            })
+            .catch((error) => {
+              console.error('Failed to load payment history:', error);
+            })
+            .finally(() => {
+              setPaymentsLoading(false);
+            })
+        );
+      }
+
+      await Promise.all(requests);
+    } finally {
+      if (isReload) {
+        setReloading(false);
+      }
+    }
+  };
 
   useEffect(() => {
-    authService.getActiveOffers()
-      .then(setOffers)
-      .catch((error) => {
-        console.error('Failed to load offers:', error);
-      })
-      .finally(() => setOffersLoading(false));
+    loadBillingData();
   }, []);
 
-  useEffect(() => {
-    authService.getPaymentHistory()
-      .then(setPayments)
-      .catch((error) => {
-        console.error('Failed to load payment history:', error);
-      })
-      .finally(() => setPaymentsLoading(false));
-  }, []);
+  const handleReload = async () => {
+    dataCache.invalidate(OFFERS_CACHE_KEY);
+    dataCache.invalidate(PAYMENTS_CACHE_KEY);
+    await loadBillingData({ forceRefresh: true, isReload: true });
+  };
+
+  const auditsPerformed = user?.user_usage?.audits_performed ?? 0;
+  const auditLimit = user?.user_usage?.audit_limit ?? 0;
+  const roundsPerAudit = user?.user_usage?.rounds_per_audit ?? 3;
+  const auditsRemaining = Math.max(auditLimit - auditsPerformed, 0);
+  const usagePercent = auditLimit > 0 ? Math.min((auditsPerformed / auditLimit) * 100, 100) : 0;
+
+  const filteredPayments = payments.filter((payment) => {
+    const query = paymentsSearch.toLowerCase();
+    const planName = payment.offer?.name?.toLowerCase() ?? 'plan';
+    return planName.includes(query) || payment.status.toLowerCase().includes(query);
+  });
 
   const activeTier = user?.subscription_tier?.toUpperCase() ?? 'FREE';
   return (
@@ -38,6 +133,14 @@ export function Billing() {
           <h1 className="font-sans text-xl font-bold text-white tracking-wide">
             BILLING &amp; PLANS
           </h1>
+          <button
+            onClick={handleReload}
+            disabled={offersLoading || paymentsLoading || reloading}
+            className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
+          >
+            <RefreshCwIcon className={`w-3 h-3 ${reloading ? 'animate-spin' : ''}`} />
+            REFRESH
+          </button>
         </div>
         <p className="font-mono text-[10px] text-[#404040] tracking-wider">
           CURRENT PLAN: {activeTier}
@@ -51,23 +154,26 @@ export function Billing() {
             MONTHLY QUOTA USAGE
           </span>
           <span className="font-mono text-xs text-[#EF4444] font-bold">
-            4 / 10 AUDITS
+            {auditsPerformed} / {auditLimit} AUDITS
           </span>
         </div>
         <div className="w-full h-2 bg-[#1a1a1a] mb-2">
           <div
             className="h-full bg-[#EF4444]"
             style={{
-              width: '40%'
-            }} />
-
+              width: `${usagePercent}%`
+            }}
+          />
         </div>
         <p className="font-mono text-[9px] text-[#404040]">
-          6 AUDITS REMAINING THIS CYCLE — RESETS FEB 28, 2025
+          {auditsRemaining} AUDITS REMAINING THIS CYCLE
+        </p>
+        <p className="font-mono text-[9px] text-[#404040] mt-1">
+          ROUNDS PER AUDIT: {roundsPerAudit}
         </p>
       </div>
 
-      {/* Pricing tiers — loaded from DB */}
+      {/* Pricing tiers - loaded from DB */}
       {offersLoading ? (
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
@@ -76,29 +182,25 @@ export function Billing() {
           </div>
         </div>
       ) : (
-        <div className={`grid grid-cols-1 gap-px bg-[#262626] mb-8 ${
-          offers.length <= 1 ? 'md:grid-cols-1' :
-          offers.length === 2 ? 'md:grid-cols-2' :
-          offers.length === 3 ? 'md:grid-cols-3' :
-          'md:grid-cols-2 xl:grid-cols-4'
-        }`}>
+        <div
+          className={`grid grid-cols-1 gap-px bg-[#262626] mb-8 ${
+            offers.length <= 1
+              ? 'md:grid-cols-1'
+              : offers.length === 2
+              ? 'md:grid-cols-2'
+              : offers.length === 3
+              ? 'md:grid-cols-3'
+              : 'md:grid-cols-2 xl:grid-cols-4'
+          }`}
+        >
           {offers.map((offer) => (
             <div
               key={offer.id}
               className={`bg-[#0a0a0a] p-6 flex flex-col relative ${
                 offer.is_recommended ? 'border-t-2' : ''
               }`}
-              style={offer.is_recommended ? { borderTopColor: offer.color } : {}}>
-
-              {/* Active plan badge */}
-              {/* {activeTier === offer.name.toUpperCase() && (
-                <div className="absolute top-3 left-3">
-                  <span className="font-mono text-[8px] font-bold text-black bg-white px-2 py-0.5 tracking-widest">
-                    ✓ CURRENT PLAN
-                  </span>
-                </div>
-              )} */}
-
+              style={offer.is_recommended ? { borderTopColor: offer.color } : {}}
+            >
               {offer.is_recommended && (
                 <div className="absolute top-0 right-4 -translate-y-1/2">
                   <span className="font-mono text-[9px] font-bold text-white bg-[#EF4444] px-2 py-0.5 tracking-widest">
@@ -108,18 +210,15 @@ export function Billing() {
               )}
 
               <div className="mb-4">
-                <span
-                  className="font-mono text-[9px] tracking-widest"
-                  style={{ color: offer.color }}>
+                <span className="font-mono text-[9px] tracking-widest" style={{ color: offer.color }}>
                   {offer.tier_label}
                 </span>
-                <h2 className="font-sans text-lg font-bold text-white mt-1">
-                  {offer.name}
-                </h2>
+                <h2 className="font-sans text-lg font-bold text-white mt-1">{offer.name}</h2>
                 <div className="flex items-baseline gap-1 mt-2">
                   <span
                     className="font-mono text-3xl font-bold"
-                    style={{ color: offer.price === 0 && offer.tier === 1 ? '#ffffff' : offer.color }}>
+                    style={{ color: offer.price === 0 && offer.tier === 1 ? '#ffffff' : offer.color }}
+                  >
                     {offer.price_label}
                   </span>
                   {offer.price_suffix && (
@@ -133,7 +232,8 @@ export function Billing() {
                   <li key={f} className="flex items-center gap-2">
                     <CheckIcon
                       className="w-3 h-3 flex-shrink-0"
-                      style={{ color: offer.tier === 1 ? '#404040' : offer.color }} />
+                      style={{ color: offer.tier === 1 ? '#404040' : offer.color }}
+                    />
                     <span className="font-mono text-[10px] text-[#666]">{f}</span>
                   </li>
                 ))}
@@ -147,21 +247,24 @@ export function Billing() {
               {offer.cta_type === 'link' && activeTier === offer.name.toUpperCase() ? (
                 <button
                   disabled
-                  className="w-full py-2.5 border border-[#262626] text-[#404040] font-mono text-xs tracking-widest cursor-default">
+                  className="w-full py-2.5 border border-[#262626] text-[#404040] font-mono text-xs tracking-widest cursor-default"
+                >
                   CURRENT PLAN
                 </button>
               ) : offer.cta_type === 'link' ? (
                 <Link
                   to={offer.cta_link}
                   className="w-full py-2.5 font-mono text-xs font-bold tracking-widest text-white text-center block transition-colors"
-                  style={{ backgroundColor: offer.color }}>
+                  style={{ backgroundColor: offer.color }}
+                >
                   {offer.cta_label}
                 </Link>
               ) : offer.cta_type === 'contact' ? (
                 <a
                   href={offer.cta_link}
                   className="w-full py-2.5 border font-mono text-xs font-bold tracking-widest hover:text-white transition-colors flex items-center justify-center gap-2"
-                  style={{ borderColor: offer.color, color: offer.color }}>
+                  style={{ borderColor: offer.color, color: offer.color }}
+                >
                   {offer.cta_label}
                   <ArrowRightIcon className="w-3 h-3" />
                 </a>
@@ -179,6 +282,16 @@ export function Billing() {
           </span>
         </div>
         <div className="p-4">
+          <div className="relative mb-4">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#404040]" />
+            <input
+              type="text"
+              value={paymentsSearch}
+              onChange={(e) => setPaymentsSearch(e.target.value)}
+              placeholder="SEARCH BILLING HISTORY..."
+              className="w-full bg-[#0a0a0a] border border-[#262626] pl-9 pr-4 py-2.5 font-mono text-xs text-white placeholder-[#333] focus:border-[#3B82F6] focus:outline-none transition-colors"
+            />
+          </div>
           {paymentsLoading ? (
             <div className="flex items-center justify-center py-6">
               <div className="w-5 h-5 border border-[#EF4444] border-t-transparent animate-spin" />
@@ -186,6 +299,10 @@ export function Billing() {
           ) : payments.length === 0 ? (
             <p className="font-mono text-[10px] text-[#333] text-center py-4">
               NO BILLING HISTORY
+            </p>
+          ) : filteredPayments.length === 0 ? (
+            <p className="font-mono text-[10px] text-[#333] text-center py-4">
+              NO RESULTS FOUND
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -196,13 +313,18 @@ export function Billing() {
                     <th className="text-left font-mono text-[9px] text-[#404040] tracking-widest pb-2 pr-4">PLAN</th>
                     <th className="text-right font-mono text-[9px] text-[#404040] tracking-widest pb-2 pr-4">AMOUNT</th>
                     <th className="text-right font-mono text-[9px] text-[#404040] tracking-widest pb-2">STATUS</th>
+                    <th className="text-right font-mono text-[9px] text-[#404040] tracking-widest pb-2">RECEIPT</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payments.map((p) => (
+                  {filteredPayments.map((p) => (
                     <tr key={p.id} className="border-b border-[#111] last:border-0">
                       <td className="font-mono text-[10px] text-[#666] py-2.5 pr-4">
-                        {new Date(p.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        {new Date(p.created_at).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        })}
                       </td>
                       <td className="font-mono text-[10px] text-white py-2.5 pr-4">
                         {p.offer?.name ?? 'PLAN'}
@@ -223,6 +345,25 @@ export function Billing() {
                           {p.status.toUpperCase()}
                         </span>
                       </td>
+                      <td className="py-2.5 text-right">
+                        {p.status === 'succeeded' && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                showToast('OPENING STRIPE RECEIPT', 'info');
+                                const data = await authService.getPaymentReceipt(p.id);
+                                window.open(data.receipt_url, '_blank');
+                              } catch (err: any) {
+                                showToast(err.message || 'Failed to fetch payment receipt', 'error');
+                              }
+                            }}
+                            className="ml-auto flex items-center gap-1 px-2 py-1 border border-[#262626] text-[#666] font-mono text-[9px] tracking-widest hover:border-[#3B82F6] hover:text-[#3B82F6] transition-colors"
+                          >
+                            <DownloadIcon className="w-3 h-3" />
+                            RECEIPT
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -231,6 +372,6 @@ export function Billing() {
           )}
         </div>
       </div>
-    </div>);
-
+    </div>
+  );
 }

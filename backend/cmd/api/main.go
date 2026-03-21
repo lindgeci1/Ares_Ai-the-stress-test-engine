@@ -75,6 +75,7 @@ func main() {
 		&models.Role{},
 		&models.User{},
 		&models.RefreshToken{},
+		&models.ResetPassword{},
 		&models.UserRole{},
 		&models.UserUsage{},
 		&models.Document{},
@@ -87,6 +88,9 @@ func main() {
 	}
 
 	log.Println("✅ Database migration completed!")
+
+	// Backfill rounds_per_audit for existing rows added before this column existed.
+	//db.Exec("UPDATE user_usages SET rounds_per_audit = 3 WHERE rounds_per_audit = 0 OR rounds_per_audit IS NULL")
 
 	// Seed default roles and offers
 	seedRoles(db)
@@ -116,6 +120,10 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo)
 	userHandler := handlers.NewUserHandler(userService)
+	emailService := service.NewEmailService()
+	resetPasswordRepo := repository.NewResetPasswordRepository(db)
+	resetPasswordService := service.NewResetPasswordService(resetPasswordRepo, userRepo, emailService)
+	resetPasswordHandler := handlers.NewResetPasswordHandler(resetPasswordService)
 
 	// Initialize Cloudinary service
 	cloudinaryService, err := service.NewCloudinaryService()
@@ -138,7 +146,7 @@ func main() {
 
 	// Setup routes
 	routes.SetupHealthRoutes(api)
-	routes.SetupAuthRoutes(api, userHandler)
+	routes.SetupAuthRoutes(api, userHandler, resetPasswordHandler)
 	routes.SetupUserRoutes(api, userHandler)
 	routes.SetupDocumentRoutes(api, docHandler)
 	routes.SetupOfferRoutes(api, offerHandler)
@@ -161,60 +169,63 @@ func main() {
 // seedOffers inserts the default subscription plans if they don't exist yet
 func seedOffers(db *gorm.DB) {
 	operatorFeatures, _ := json.Marshal([]string{"10 audits / month", "3 rounds per audit", "Basic heatmap analysis", "7-day audit history"})
-	strategistFeatures, _ := json.Marshal([]string{"100 audits / month", "10 rounds per audit", "Full heatmap + annotations", "Rebuttal console access", "PDF export reports", "90-day audit history"})
-	titanFeatures, _ := json.Marshal([]string{"Unlimited audits / month", "20 rounds per audit", "Full heatmap + annotations", "Rebuttal console access", "PDF export reports", "Unlimited audit history", "Priority support"})
+	strategistFeatures, _ := json.Marshal([]string{"100 audits / month", "10 rounds per audit", "PDF export reports", "90-day audit history"})
+	titanFeatures, _ := json.Marshal([]string{"200 audits / month", "20 rounds per audit", "PDF export reports", "Unlimited audit history", "Priority support"})
 
 	offers := []models.Offer{
 		{
-			ID:            1,
-			Name:          "OPERATOR",
-			Tier:          1,
-			TierLabel:     "TIER 01",
-			Price:         0,
-			PriceLabel:    "$0",
-			PriceSuffix:   "/month",
-			Features:      operatorFeatures,
-			Color:         "#ffffff",
-			IsRecommended: false,
-			IsActive:      true,
-			SortOrder:     1,
-			CTALabel:      "CURRENT PLAN",
-			CTAType:       "none",
-			CTALink:       "",
+			ID:             1,
+			Name:           "OPERATOR",
+			Tier:           1,
+			TierLabel:      "TIER 01",
+			Price:          0,
+			RoundsPerAudit: 3,
+			PriceLabel:     "$0",
+			PriceSuffix:    "/month",
+			Features:       operatorFeatures,
+			Color:          "#ffffff",
+			IsRecommended:  false,
+			IsActive:       true,
+			SortOrder:      1,
+			CTALabel:       "CURRENT PLAN",
+			CTAType:        "none",
+			CTALink:        "",
 		},
 		{
-			ID:            2,
-			Name:          "STRATEGIST",
-			Tier:          2,
-			TierLabel:     "TIER 02",
-			Price:         49,
-			PriceLabel:    "$49",
-			PriceSuffix:   "/month",
-			Features:      strategistFeatures,
-			Color:         "#EF4444",
-			IsRecommended: true,
-			IsActive:      true,
-			SortOrder:     2,
-			CTALabel:      "UPGRADE TO STRATEGIST",
-			CTAType:       "link",
-			CTALink:       "/checkout/2",
+			ID:             2,
+			Name:           "STRATEGIST",
+			Tier:           2,
+			TierLabel:      "TIER 02",
+			Price:          49,
+			RoundsPerAudit: 10,
+			PriceLabel:     "$49",
+			PriceSuffix:    "/month",
+			Features:       strategistFeatures,
+			Color:          "#EF4444",
+			IsRecommended:  true,
+			IsActive:       true,
+			SortOrder:      2,
+			CTALabel:       "UPGRADE TO STRATEGIST",
+			CTAType:        "link",
+			CTALink:        "/checkout/2",
 		},
 		{
-			ID:            3,
-			Name:          "TITAN",
-			Tier:          3,
-			TierLabel:     "TIER 03",
-			Price:         100,
-			PriceLabel:    "$100",
-			PriceSuffix:   "/month",
-			Features:      titanFeatures,
-			Color:         "#F59E0B",
-			IsRecommended: false,
-			IsActive:      true,
-			SortOrder:     3,
-			CTALabel:      "UPGRADE TO TITAN",
-			CTAType:       "link",
-			CTALink:       "/checkout/3",
+			ID:             3,
+			Name:           "TITAN",
+			Tier:           3,
+			TierLabel:      "TIER 03",
+			Price:          100,
+			RoundsPerAudit: 20,
+			PriceLabel:     "$100",
+			PriceSuffix:    "/month",
+			Features:       titanFeatures,
+			Color:          "#F59E0B",
+			IsRecommended:  false,
+			IsActive:       true,
+			SortOrder:      3,
+			CTALabel:       "UPGRADE TO TITAN",
+			CTAType:        "link",
+			CTALink:        "/checkout/3",
 		},
 	}
 

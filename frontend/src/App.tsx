@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { PublicRoute } from './components/PublicRoute';
 import { Landing } from './pages/Landing';
 import { Auth } from './pages/Auth';
+import { ForgotPassword } from './pages/ForgotPassword';
 import { Dashboard } from './pages/Dashboard';
 import { AuditLab } from './pages/AuditLab';
 import { Checkout } from './pages/Checkout';
@@ -18,18 +19,29 @@ import { AdminUsers } from './pages/AdminUsers';
 import { AdminDocuments } from './pages/AdminDocuments';
 import { AdminPackages } from './pages/AdminPackages';
 import { AdminPayments } from './pages/AdminPayments';
+import { AdminSessions } from './pages/AdminSessions';
+import { ToastProvider } from './context/ToastContext';
 export function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <SessionExpiredModal />
-        <Routes>
+    <ToastProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <SessionExpiredModal />
+          <Routes>
           <Route path="/" element={<Landing />} />
           <Route
             path="/auth"
             element={
               <PublicRoute>
                 <Auth />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              <PublicRoute>
+                <ForgotPassword />
               </PublicRoute>
             }
           />
@@ -99,6 +111,16 @@ export function App() {
             }
           />
           <Route
+            path="/admin/sessions"
+            element={
+              <ProtectedRoute requiredRole="Admin">
+                <AdminLayout>
+                  <AdminSessions />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/admin"
             element={
               <ProtectedRoute requiredRole="Admin">
@@ -130,8 +152,9 @@ export function App() {
               </ProtectedRoute>
             }
           />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ToastProvider>
   );
 }

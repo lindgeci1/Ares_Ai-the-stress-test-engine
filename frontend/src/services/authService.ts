@@ -21,6 +21,12 @@ export interface User {
   email: string;
   operator_name: string;
   subscription_tier: string;
+  user_usage?: {
+    audits_performed: number;
+    audit_limit: number;
+    rounds_per_audit: number;
+    last_reset_at: string;
+  };
   status: string;
   roles: Role[];
   created_at: string;
@@ -91,6 +97,15 @@ export interface Payment {
   updated_at: string;
   // Admin-only fields (preloaded)
   user?: User;
+}
+
+export interface Session {
+  id: number;
+  user_id: number;
+  user?: User;
+  token: string;
+  created_at: string;
+  expires_at: string;
 }
 
 export interface Document {
@@ -195,6 +210,38 @@ export const authService = {
     } catch (error) {
       setToken(null);
       throw error;
+    }
+  },
+
+  // Request a password reset code (unauthenticated)
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    try {
+      const response = await axiosInstance.post<{ message: string }>('/auth/forgot-password', { email });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to request password reset');
+    }
+  },
+
+  // Reset password with code (unauthenticated)
+  async resetPassword(code: string, newPassword: string): Promise<{ message: string }> {
+    try {
+      const response = await axiosInstance.post<{ message: string }>('/auth/reset-password', {
+        code,
+        new_password: newPassword,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to reset password');
+    }
+  },
+
+  async validateResetCode(code: string): Promise<{ valid: boolean }> {
+    try {
+      const response = await axiosInstance.post<{ valid: boolean }>('/auth/validate-code', { code });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Invalid or expired code');
     }
   },
 
@@ -422,6 +469,15 @@ export const authService = {
     }
   },
 
+  async getPaymentReceipt(paymentId: number): Promise<{ receipt_url: string }> {
+    try {
+      const response = await axiosInstance.get<{ receipt_url: string }>(`/payments/${paymentId}/receipt`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch payment receipt');
+    }
+  },
+
   // Get all payments (admin only)
   async getAllPayments(): Promise<Payment[]> {
     try {
@@ -429,6 +485,26 @@ export const authService = {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Failed to fetch payments');
+    }
+  },
+
+  // Get all active and expired refresh-token sessions (admin only)
+  async getAllSessions(): Promise<Session[]> {
+    try {
+      const response = await axiosInstance.get<Session[]>('/users/sessions');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch sessions');
+    }
+  },
+
+  // Delete all expired refresh-token sessions (admin only)
+  async clearExpiredSessions(): Promise<{ deleted: number }> {
+    try {
+      const response = await axiosInstance.delete<{ deleted: number }>('/users/sessions/expired');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to clear expired sessions');
     }
   },
 
