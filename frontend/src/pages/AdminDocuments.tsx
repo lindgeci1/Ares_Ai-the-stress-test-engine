@@ -6,10 +6,20 @@ import {
   DownloadIcon,
   EyeIcon,
   XIcon,
-  AlertTriangleIcon } from
+  AlertTriangleIcon,
+  RefreshCwIcon } from
 'lucide-react';
-import { authService } from '../services/authService';
+import { authService, User as APIUser } from '../services/authService';
 import { AuthContext } from '../context/AuthContext';
+import { dataCache } from '../utils/dataCache';
+import { useToast } from '../context/useToast';
+
+const DOCUMENTS_CACHE_KEY = 'admin:documents';
+
+type DocumentsCachePayload = {
+  documents: Document[];
+  users: APIUser[];
+};
 
 type DocStatus = 'PROCESSED' | 'PROCESSING' | 'FAILED';
 type Document = {
@@ -50,23 +60,43 @@ function formatDate(dateString: string): string {
 
 type SortKey = 'name' | 'owner' | 'resilienceScore' | 'fileSize' | 'uploadDate';
 export function AdminDocuments() {
+  const { showToast } = useToast();
   const authContext = useContext(AuthContext);
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedDocuments = dataCache.get<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY);
+  const [documents, setDocuments] = useState<Document[]>(cachedDocuments?.documents ?? []);
+  const [loading, setLoading] = useState(!cachedDocuments);
+  const [reloading, setReloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDocuments();
   }, []);
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = async (
+    options: { forceRefresh?: boolean; isReload?: boolean } = {}
+  ) => {
+    const { forceRefresh = false, isReload = false } = options;
+
+    if (!forceRefresh) {
+      const cached = dataCache.get<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY);
+      if (cached) {
+        setDocuments(cached.documents);
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
-      setLoading(true);
+      if (isReload) {
+        setReloading(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       const backendDocs = await authService.getAllDocuments();
       
       // Fetch all users to map owner info
-      let users: any[] = [];
+      let users: APIUser[] = [];
       try {
         users = await authService.getAllUsers();
       } catch (err) {
@@ -91,12 +121,27 @@ export function AdminDocuments() {
       });
       
       setDocuments(mappedDocs);
+      dataCache.set<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY, {
+        documents: mappedDocs,
+        users,
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load documents');
+      const message = err instanceof Error ? err.message : 'Failed to load documents';
+      setError(message);
+      showToast(message, 'error');
       setDocuments([]);
     } finally {
-      setLoading(false);
+      if (isReload) {
+        setReloading(false);
+      } else {
+        setLoading(false);
+      }
     }
+  };
+
+  const handleReload = async () => {
+    dataCache.invalidate(DOCUMENTS_CACHE_KEY);
+    await fetchDocuments({ forceRefresh: true, isReload: true });
   };
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('uploadDate');
@@ -116,10 +161,21 @@ export function AdminDocuments() {
   const handleDelete = async (id: string) => {
     try {
       await authService.deleteDocument(Number(id));
-      setDocuments((prev) => prev.filter((d) => d.id !== id));
+      setDocuments((prev) => {
+        const next = prev.filter((d) => d.id !== id);
+        const cached = dataCache.get<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY);
+        dataCache.set<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY, {
+          documents: next,
+          users: cached?.users ?? [],
+        });
+        return next;
+      });
       setDeleteTarget(null);
+      showToast('DOCUMENT DELETED', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete document');
+      const message = err instanceof Error ? err.message : 'Failed to delete document';
+      setError(message);
+      showToast(message, 'error');
     }
   };
 
@@ -144,11 +200,22 @@ export function AdminDocuments() {
         rounds: 0
       };
       
-      setDocuments((prev) => [mappedDoc, ...prev]);
+      setDocuments((prev) => {
+        const next = [mappedDoc, ...prev];
+        const cached = dataCache.get<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY);
+        dataCache.set<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY, {
+          documents: next,
+          users: cached?.users ?? [],
+        });
+        return next;
+      });
       setUploadModal(false);
       setUploadFile(null);
+      showToast('DOCUMENT UPLOADED', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload document');
+      const message = err instanceof Error ? err.message : 'Failed to upload document';
+      setError(message);
+      showToast(message, 'error');
     } finally {
       setUploading(false);
     }
@@ -157,7 +224,9 @@ export function AdminDocuments() {
   filter(
     (d) =>
     d.name.toLowerCase().includes(search.toLowerCase()) ||
-    d.owner.toLowerCase().includes(search.toLowerCase())
+    d.owner.toLowerCase().includes(search.toLowerCase()) ||
+    d.ownerEmail.toLowerCase().includes(search.toLowerCase()) ||
+    d.status.toLowerCase().includes(search.toLowerCase())
   ).
   sort((a, b) => {
     let aVal: string | number = a[sortKey];
@@ -214,6 +283,14 @@ export function AdminDocuments() {
             <h1 className="font-sans text-xl font-bold text-white tracking-wide">
               GLOBAL DOCUMENT REGISTRY
             </h1>
+            <button
+              onClick={handleReload}
+              disabled={loading || reloading}
+              className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
+            >
+              <RefreshCwIcon className={`w-3 h-3 ${reloading ? 'animate-spin' : ''}`} />
+              REFRESH
+            </button>
           </div>
           <p className="font-mono text-[10px] text-[#404040] tracking-widest">
             {documents.length} DOCUMENTS — AVG RESILIENCE: {avgScore}%

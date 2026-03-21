@@ -7,9 +7,13 @@ import {
   AlertTriangleIcon,
   PackageIcon,
   ToggleLeftIcon,
-  ToggleRightIcon } from
+  ToggleRightIcon,
+  RefreshCwIcon } from
 'lucide-react';
 import { authService, Offer } from '../services/authService';
+import { dataCache } from '../utils/dataCache';
+
+const OFFERS_CACHE_KEY = 'admin:offers';
 type MetricCard = {
   label: string;
   value: string;
@@ -111,9 +115,11 @@ const CHURN_DATA = [
 }];
 
 export function AdminDashboard() {
+  const cachedOffers = dataCache.get<Offer[]>(OFFERS_CACHE_KEY);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [offersLoading, setOffersLoading] = useState(true);
+  const [offers, setOffers] = useState<Offer[]>(cachedOffers ?? []);
+  const [offersLoading, setOffersLoading] = useState(!cachedOffers);
+  const [reloading, setReloading] = useState(false);
   const [toggling, setToggling] = useState<number | null>(null);
 
   useEffect(() => {
@@ -121,20 +127,59 @@ export function AdminDashboard() {
     return () => clearInterval(timer);
   }, []);
 
+  const loadOffers = async (
+    options: { forceRefresh?: boolean; isReload?: boolean } = {}
+  ) => {
+    const { forceRefresh = false, isReload = false } = options;
+
+    if (!forceRefresh) {
+      const cached = dataCache.get<Offer[]>(OFFERS_CACHE_KEY);
+      if (cached) {
+        setOffers(cached);
+        setOffersLoading(false);
+        return;
+      }
+    }
+
+    if (isReload) {
+      setReloading(true);
+    } else {
+      setOffersLoading(true);
+    }
+
+    try {
+      const data = await authService.getAllOffersAdmin();
+      setOffers(data);
+      dataCache.set(OFFERS_CACHE_KEY, data);
+    } catch (error) {
+      console.error('Failed to load admin offers:', error);
+    } finally {
+      if (isReload) {
+        setReloading(false);
+      } else {
+        setOffersLoading(false);
+      }
+    }
+  };
+
   useEffect(() => {
-    authService.getAllOffersAdmin()
-      .then(setOffers)
-          .catch((error) => {
-            console.error('Failed to load admin offers:', error);
-          })
-      .finally(() => setOffersLoading(false));
+    loadOffers();
   }, []);
+
+  const handleReload = async () => {
+    dataCache.invalidate(OFFERS_CACHE_KEY);
+    await loadOffers({ forceRefresh: true, isReload: true });
+  };
 
   const handleToggle = async (id: number) => {
     setToggling(id);
     try {
       const updated = await authService.toggleOffer(id);
-      setOffers(prev => prev.map(o => o.id === updated.id ? updated : o));
+      setOffers((prev) => {
+        const next = prev.map((o) => (o.id === updated.id ? updated : o));
+        dataCache.set(OFFERS_CACHE_KEY, next);
+        return next;
+      });
     } catch {
       // silently ignore
     } finally {
@@ -151,6 +196,14 @@ export function AdminDashboard() {
             <h1 className="font-sans text-xl font-bold text-white tracking-wide">
               GLOBAL OPS DASHBOARD
             </h1>
+            <button
+              onClick={handleReload}
+              disabled={offersLoading || reloading}
+              className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
+            >
+              <RefreshCwIcon className={`w-3 h-3 ${reloading ? 'animate-spin' : ''}`} />
+              REFRESH
+            </button>
           </div>
           <p className="font-mono text-[10px] text-[#404040] tracking-widest">
             {currentTime.toISOString().replace('T', ' ').slice(0, 19)} UTC —

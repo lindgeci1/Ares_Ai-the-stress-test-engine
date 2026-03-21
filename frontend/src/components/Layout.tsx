@@ -13,6 +13,7 @@ import {
   ChevronRightIcon } from
 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/useToast';
 type LayoutProps = {
   children: React.ReactNode;
 };
@@ -36,7 +37,14 @@ const navItems = [
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const { showToast } = useToast();
+  const auditsPerformed = user?.user_usage?.audits_performed ?? 0;
+  const auditLimit = user?.user_usage?.audit_limit ?? 0;
+  const isUnlimitedPlan = auditLimit >= 9999;
+  const auditsRemaining = Math.max(auditLimit - auditsPerformed, 0);
+  const usagePercent =
+    isUnlimitedPlan ? 100 : auditLimit > 0 ? Math.min(auditsPerformed / auditLimit * 100, 100) : 0;
   // Desktop: collapsed (icon-only) state
   const [collapsed, setCollapsed] = useState(false);
   // Mobile: sidebar open state
@@ -59,6 +67,7 @@ export function Layout({ children }: LayoutProps) {
     setShowLogoutModal(true);
   };
   const confirmLogout = () => {
+    showToast('SESSION TERMINATED', 'info');
     logout();
     navigate('/');
   };
@@ -181,19 +190,19 @@ export function Layout({ children }: LayoutProps) {
                 QUOTA
               </span>
               <span className="font-mono text-[10px] text-[#EF4444] font-bold">
-                4/10
+                {auditsPerformed}/{isUnlimitedPlan ? '∞' : auditLimit}
               </span>
             </div>
             <div className="w-full h-1 bg-[#1a1a1a] mb-3">
               <div
-              className="h-full bg-[#EF4444]"
+              className={`h-full ${isUnlimitedPlan ? 'bg-[#22C55E]' : 'bg-[#EF4444]'}`}
               style={{
-                width: '40%'
+                width: `${usagePercent}%`
               }} />
 
             </div>
             <p className="font-mono text-[9px] text-[#404040] mb-3 tracking-wider">
-              6 AUDITS REMAINING
+              {isUnlimitedPlan ? '∞ AUDITS REMAINING' : `${auditsRemaining} AUDITS REMAINING`}
             </p>
             <Link
             to="/billing"

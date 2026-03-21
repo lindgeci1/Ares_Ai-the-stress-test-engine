@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"ares-ai-backend/internal/service"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stripe/stripe-go/v82"
+	"github.com/stripe/stripe-go/v82/paymentintent"
 )
 
 // PaymentHandler handles HTTP requests related to payments
@@ -111,4 +114,45 @@ func (h *PaymentHandler) GetAllPayments(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(payments)
+}
+
+// GetReceiptURL returns the Stripe receipt URL for a completed payment.
+// GET /api/v1/payments/:id/receipt
+func (h *PaymentHandler) GetReceiptURL(c *fiber.Ctx) error {
+	userID, err := getUserIDFromClaims(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	paymentID, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payment id"})
+	}
+
+	payment, err := h.service.GetPaymentByID(uint(paymentID))
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "payment not found"})
+	}
+
+	if payment.UserID != userID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
+	}
+
+	params := &stripe.PaymentIntentParams{}
+	params.AddExpand("latest_charge")
+	pi, err := paymentintent.Get(payment.StripeSessionID, params)
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to fetch receipt from stripe"})
+	}
+
+	if pi.LatestCharge == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "receipt not available"})
+	}
+
+	receiptURL := pi.LatestCharge.ReceiptURL
+	if receiptURL == "" {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "receipt not available"})
+	}
+
+	return c.JSON(fiber.Map{"receipt_url": receiptURL})
 }

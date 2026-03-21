@@ -26,6 +26,15 @@ func (r *PaymentRepository) Create(payment *models.Payment) error {
 	return nil
 }
 
+// GetByID retrieves a payment by ID, preloading Offer and User.
+func (r *PaymentRepository) GetByID(id uint) (*models.Payment, error) {
+	var payment models.Payment
+	if err := r.db.Preload("Offer").Preload("User").First(&payment, "id = ?", id).Error; err != nil {
+		return nil, fmt.Errorf("get payment by id: %w", err)
+	}
+	return &payment, nil
+}
+
 // GetByUserID retrieves all payments for a specific user, preloading Offer
 func (r *PaymentRepository) GetByUserID(userID uint) ([]models.Payment, error) {
 	var payments []models.Payment

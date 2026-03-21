@@ -175,6 +175,26 @@ func (s *UserService) Refresh(refreshToken string) (string, error) {
 	return accessToken, nil
 }
 
+// GetAllSessions retrieves all refresh-token sessions for admin inspection.
+func (s *UserService) GetAllSessions() ([]models.RefreshToken, error) {
+	tokens, err := s.repo.GetAllRefreshTokens()
+	if err != nil {
+		return nil, fmt.Errorf("get all sessions: %w", err)
+	}
+
+	return tokens, nil
+}
+
+// ClearExpiredSessions deletes all expired refresh-token sessions and returns deleted count.
+func (s *UserService) ClearExpiredSessions() (int64, error) {
+	deleted, err := s.repo.DeleteExpiredRefreshTokens()
+	if err != nil {
+		return 0, fmt.Errorf("clear expired sessions: %w", err)
+	}
+
+	return deleted, nil
+}
+
 func (s *UserService) generateAccessToken(user *models.User) (string, error) {
 	role := "User"
 	if len(user.Roles) > 0 && strings.TrimSpace(user.Roles[0].Name) != "" {

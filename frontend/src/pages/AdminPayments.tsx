@@ -1,54 +1,103 @@
 import { useEffect, useState } from 'react';
-import { CreditCardIcon, RefreshCwIcon } from 'lucide-react';
+import { CreditCardIcon, RefreshCwIcon, SearchIcon } from 'lucide-react';
 import { authService, Payment } from '../services/authService';
+import { dataCache } from '../utils/dataCache';
+import { useToast } from '../context/useToast';
+
+const PAYMENTS_CACHE_KEY = 'admin:payments';
 
 export function AdminPayments() {
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
+  const cachedPayments = dataCache.get<Payment[]>(PAYMENTS_CACHE_KEY);
+  const [payments, setPayments] = useState<Payment[]>(cachedPayments ?? []);
+  const [loading, setLoading] = useState(!cachedPayments);
+  const [reloading, setReloading] = useState(false);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (
+    options: { forceRefresh?: boolean; isReload?: boolean } = {}
+  ) => {
+    const { forceRefresh = false, isReload = false } = options;
+
+    if (!forceRefresh) {
+      const cached = dataCache.get<Payment[]>(PAYMENTS_CACHE_KEY);
+      if (cached) {
+        setPayments(cached);
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (isReload) {
+      setReloading(true);
+    } else {
+      setLoading(true);
+    }
     setError('');
+
     try {
       const data = await authService.getAllPayments();
       setPayments(data);
+      dataCache.set(PAYMENTS_CACHE_KEY, data);
     } catch (err: any) {
-      setError(err.message || 'Failed to load payments.');
+      const message = err.message || 'Failed to load payments.';
+      setError(message);
+      showToast(message, 'error');
     } finally {
-      setLoading(false);
+      if (isReload) {
+        setReloading(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => { load(); }, []);
 
+  const handleReload = async () => {
+    dataCache.invalidate(PAYMENTS_CACHE_KEY);
+    await load({ forceRefresh: true, isReload: true });
+  };
+
   const totalRevenue = payments
     .filter((p) => p.status === 'succeeded')
     .reduce((sum, p) => sum + p.amount_paid, 0);
 
+  const filteredPayments = payments.filter((payment) => {
+    const query = search.toLowerCase();
+    const userEmail = payment.user?.email?.toLowerCase() ?? '';
+    const offerName = payment.offer?.name?.toLowerCase() ?? '';
+    const status = payment.status.toLowerCase();
+
+    return (
+      userEmail.includes(query) ||
+      offerName.includes(query) ||
+      status.includes(query)
+    );
+  });
+
   return (
     <div className="p-6 min-h-full">
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <CreditCardIcon className="w-4 h-4 text-[#EF4444]" />
-            <h1 className="font-sans text-xl font-bold text-white tracking-wide">
-              PAYMENTS
-            </h1>
-          </div>
-          <p className="font-mono text-[10px] text-[#404040] tracking-wider">
-            ALL STRIPE TRANSACTIONS
-          </p>
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-1">
+          <CreditCardIcon className="w-4 h-4 text-[#EF4444]" />
+          <h1 className="font-sans text-xl font-bold text-white tracking-wide">
+            PAYMENTS
+          </h1>
+          <button
+            onClick={handleReload}
+            disabled={loading || reloading}
+            className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
+          >
+            <RefreshCwIcon className={`w-3 h-3 ${reloading ? 'animate-spin' : ''}`} />
+            REFRESH
+          </button>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-2 font-mono text-[9px] text-[#666] tracking-widest border border-[#262626] px-3 py-2 hover:border-[#404040] hover:text-[#999] transition-colors disabled:opacity-50"
-        >
-          <RefreshCwIcon className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-          REFRESH
-        </button>
+        <p className="font-mono text-[10px] text-[#404040] tracking-wider">
+          ALL STRIPE TRANSACTIONS
+        </p>
       </div>
 
       {/* Stats row */}
@@ -79,6 +128,17 @@ export function AdminPayments() {
           </span>
         </div>
 
+        <div className="relative p-4 border-b border-[#262626]">
+          <SearchIcon className="absolute left-7 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#404040]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="SEARCH USER, PLAN, OR STATUS..."
+            className="w-full bg-[#0a0a0a] border border-[#262626] pl-9 pr-4 py-2.5 font-mono text-xs text-white placeholder-[#333] focus:border-[#3B82F6] focus:outline-none transition-colors"
+          />
+        </div>
+
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
@@ -95,6 +155,10 @@ export function AdminPayments() {
         ) : payments.length === 0 ? (
           <div className="p-6 text-center">
             <p className="font-mono text-[10px] text-[#333]">NO TRANSACTIONS YET</p>
+          </div>
+        ) : filteredPayments.length === 0 ? (
+          <div className="p-6 text-center">
+            <p className="font-mono text-[10px] text-[#333]">NO RESULTS FOUND</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -119,10 +183,13 @@ export function AdminPayments() {
                   <th className="text-right font-mono text-[9px] text-[#404040] tracking-widest px-4 py-3">
                     DATE
                   </th>
+                  <th className="text-right font-mono text-[9px] text-[#404040] tracking-widest px-4 py-3">
+                    RECEIPT
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {payments.map((p) => (
+                {filteredPayments.map((p) => (
                   <tr key={p.id} className="border-b border-[#111] last:border-0 hover:bg-[#0f0f0f] transition-colors">
                     <td className="font-mono text-[10px] text-[#404040] px-4 py-3">
                       #{p.id}
@@ -159,6 +226,17 @@ export function AdminPayments() {
                         month: 'short',
                         day: 'numeric',
                       })}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => {
+                          showToast('OPENING STRIPE RECEIPT', 'info');
+                          window.open(`https://dashboard.stripe.com/payments/${p.stripe_session_id}`, '_blank');
+                        }}
+                        className="ml-auto flex items-center gap-1 px-2 py-1 border border-[#262626] text-[#666] font-mono text-[9px] tracking-widest hover:border-[#3B82F6] hover:text-[#3B82F6] transition-colors"
+                      >
+                        OPEN
+                      </button>
                     </td>
                   </tr>
                 ))}

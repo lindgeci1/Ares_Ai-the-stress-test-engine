@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
 	"ares-ai-backend/internal/models"
 	"ares-ai-backend/internal/repository"
@@ -101,6 +102,25 @@ func (s *PaymentService) ConfirmPayment(userID uint, offerID uint, paymentIntent
 		return nil, fmt.Errorf("update subscription tier: %w", err)
 	}
 
+	auditLimit := 10
+	roundsPerAudit := offer.RoundsPerAudit
+
+	switch strings.ToUpper(offer.Name) {
+	case "OPERATOR":
+		auditLimit = 10
+		roundsPerAudit = 3
+	case "STRATEGIST":
+		auditLimit = 100
+		roundsPerAudit = 10
+	case "TITAN":
+		auditLimit = 200
+		roundsPerAudit = 20
+	}
+
+	if err := s.userRepo.UpdateUserUsageOnPayment(userID, auditLimit, roundsPerAudit); err != nil {
+		return nil, fmt.Errorf("update user usage on payment: %w", err)
+	}
+
 	return payment, nil
 }
 
@@ -112,4 +132,9 @@ func (s *PaymentService) GetUserPayments(userID uint) ([]models.Payment, error) 
 // GetAllPayments returns all payments (admin)
 func (s *PaymentService) GetAllPayments() ([]models.Payment, error) {
 	return s.paymentRepo.GetAll()
+}
+
+// GetPaymentByID retrieves a payment by ID.
+func (s *PaymentService) GetPaymentByID(id uint) (*models.Payment, error) {
+	return s.paymentRepo.GetByID(id)
 }

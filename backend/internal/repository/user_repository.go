@@ -95,7 +95,7 @@ func (r *UserRepository) RegisterUser(email string, passwordHash string, operato
 // GetByID retrieves a user by ID with preloaded roles
 func (r *UserRepository) GetByID(id uint) (*models.User, error) {
 	var user models.User
-	if err := r.db.Preload("Roles").First(&user, "id = ?", id).Error; err != nil {
+	if err := r.db.Preload("Roles").Preload("UserUsage").First(&user, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("user not found")
 		}
@@ -119,7 +119,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 // GetAll retrieves all users with preloaded roles
 func (r *UserRepository) GetAll() ([]models.User, error) {
 	var users []models.User
-	if err := r.db.Preload("Roles").Find(&users).Error; err != nil {
+	if err := r.db.Preload("Roles").Preload("UserUsage").Find(&users).Error; err != nil {
 		return nil, fmt.Errorf("get all users: %w", err)
 	}
 	return users, nil
@@ -153,6 +153,26 @@ func (r *UserRepository) Update(id uint, email *string, subscriptionTier *string
 func (r *UserRepository) UpdateSubscriptionTier(userID uint, tier string) error {
 	if err := r.db.Model(&models.User{}).Where("id = ?", userID).Update("subscription_tier", tier).Error; err != nil {
 		return fmt.Errorf("update subscription tier: %w", err)
+	}
+	return nil
+}
+
+// UpdatePasswordHash updates a user's password hash.
+func (r *UserRepository) UpdatePasswordHash(userID uint, passwordHash string) error {
+	if err := r.db.Model(&models.User{}).Where("id = ?", userID).Update("password_hash", passwordHash).Error; err != nil {
+		return fmt.Errorf("update password hash: %w", err)
+	}
+	return nil
+}
+
+// UpdateUserUsageOnPayment updates audit allowance and round count after a paid plan change.
+func (r *UserRepository) UpdateUserUsageOnPayment(userID uint, auditLimit int, roundsPerAudit int) error {
+	if err := r.db.Model(&models.UserUsage{}).Where("user_id = ?", userID).Updates(map[string]interface{}{
+		"audit_limit":      auditLimit,
+		"rounds_per_audit": roundsPerAudit,
+		"audits_performed": 0,
+	}).Error; err != nil {
+		return fmt.Errorf("update user usage on payment: %w", err)
 	}
 	return nil
 }
@@ -213,4 +233,24 @@ func (r *UserRepository) GetRefreshToken(token string) (*models.RefreshToken, *m
 	}
 
 	return &refreshToken, user, nil
+}
+
+// GetAllRefreshTokens retrieves all refresh tokens with associated users ordered by newest first.
+func (r *UserRepository) GetAllRefreshTokens() ([]models.RefreshToken, error) {
+	var tokens []models.RefreshToken
+	if err := r.db.Preload("User").Preload("User.Roles").Order("created_at DESC").Find(&tokens).Error; err != nil {
+		return nil, fmt.Errorf("get all refresh tokens: %w", err)
+	}
+
+	return tokens, nil
+}
+
+// DeleteExpiredRefreshTokens removes all refresh tokens that are already expired.
+func (r *UserRepository) DeleteExpiredRefreshTokens() (int64, error) {
+	result := r.db.Where("expires_at < ?", time.Now()).Delete(&models.RefreshToken{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("delete expired refresh tokens: %w", result.Error)
+	}
+
+	return result.RowsAffected, nil
 }

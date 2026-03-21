@@ -13,20 +13,20 @@ type JSONMap datatypes.JSONMap
 
 // User represents a user in the system
 type User struct {
-	ID               uint        `json:"id" gorm:"primaryKey;autoIncrement"`
-	Email            string      `json:"email" gorm:"type:varchar(255);uniqueIndex;not null"`
-	PasswordHash     string      `json:"-" gorm:"type:varchar(255);not null"`
-	OperatorName     string      `json:"operator_name" gorm:"type:varchar(255)"`
-	StripeCustomerID *string     `json:"stripe_customer_id,omitempty" gorm:"type:varchar(255)"`
-	SubscriptionTier string      `json:"subscription_tier" gorm:"type:varchar(50);default:'Free'"`
-	Status           string      `json:"status" gorm:"type:varchar(50);default:'active'"`
-	Roles            []Role      `json:"roles,omitempty" gorm:"many2many:user_roles;constraint:OnDelete:CASCADE"`
-	UserUsage        *UserUsage  `json:"user_usage,omitempty" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	Documents        []Document  `json:"documents,omitempty" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	Payments         []Payment   `json:"payments,omitempty" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	ID               uint           `json:"id" gorm:"primaryKey;autoIncrement"`
+	Email            string         `json:"email" gorm:"type:varchar(255);uniqueIndex;not null"`
+	PasswordHash     string         `json:"-" gorm:"type:varchar(255);not null"`
+	OperatorName     string         `json:"operator_name" gorm:"type:varchar(255)"`
+	StripeCustomerID *string        `json:"stripe_customer_id,omitempty" gorm:"type:varchar(255)"`
+	SubscriptionTier string         `json:"subscription_tier" gorm:"type:varchar(50);default:'Free'"`
+	Status           string         `json:"status" gorm:"type:varchar(50);default:'active'"`
+	Roles            []Role         `json:"roles,omitempty" gorm:"many2many:user_roles;constraint:OnDelete:CASCADE"`
+	UserUsage        *UserUsage     `json:"user_usage,omitempty" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	Documents        []Document     `json:"documents,omitempty" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	Payments         []Payment      `json:"payments,omitempty" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	RefreshTokens    []RefreshToken `json:"-" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	CreatedAt        time.Time   `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt        time.Time   `json:"updated_at" gorm:"autoUpdateTime"`
+	CreatedAt        time.Time      `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt        time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName specifies the table name for User model
@@ -78,6 +78,7 @@ type UserUsage struct {
 	UserID          uint      `json:"user_id" gorm:"primaryKey"`
 	AuditsPerformed int       `json:"audits_performed" gorm:"default:0"`
 	AuditLimit      int       `json:"audit_limit" gorm:"default:10"`
+	RoundsPerAudit  int       `json:"rounds_per_audit" gorm:"default:3"`
 	LastResetAt     time.Time `json:"last_reset_at" gorm:"autoCreateTime"`
 	CreatedAt       time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt       time.Time `json:"updated_at" gorm:"autoUpdateTime"`
@@ -95,7 +96,7 @@ type RefreshToken struct {
 	Token     string    `json:"token" gorm:"type:text;not null;uniqueIndex"`
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 	ExpiresAt time.Time `json:"expires_at" gorm:"not null"`
-	User      User      `json:"-" gorm:"foreignKey:UserID;references:ID;constraint:OnDelete:CASCADE"`
+	User      User      `json:"user,omitempty" gorm:"foreignKey:UserID;references:ID;constraint:OnDelete:CASCADE"`
 }
 
 // TableName specifies the table name for RefreshToken model

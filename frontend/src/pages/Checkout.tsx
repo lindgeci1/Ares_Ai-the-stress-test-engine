@@ -16,6 +16,9 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { authService, Offer, PaymentIntentResult } from "../services/authService";
+import { useAuth } from "../context/AuthContext";
+import { dataCache } from "../utils/dataCache";
+import { useToast } from "../context/useToast";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "");
 
@@ -24,6 +27,9 @@ const SLUG_TO_OFFER_ID: Record<string, number> = {
   strategist: 2,
   titan: 3,
 };
+
+const USER_OFFERS_CACHE_KEY = "user:offers";
+const USER_PAYMENTS_CACHE_KEY = "user:payments";
 
 const CARD_ELEMENT_OPTIONS = {
   style: {
@@ -48,9 +54,21 @@ interface CheckoutFormProps {
 function CheckoutForm({ offer, intentData, onSuccess }: CheckoutFormProps) {
   const stripe = useStripe();
   const elements = useElements();
+  const { login } = useAuth();
+  const { showToast } = useToast();
   const [name, setName] = useState("");
   const [processing, setProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  const handleSuccess = async (paymentIntentId: string) => {
+    await authService.confirmPayment(paymentIntentId, offer.id);
+    const freshUser = await authService.getCurrentUser();
+    login(freshUser);
+    dataCache.invalidate(USER_OFFERS_CACHE_KEY);
+    dataCache.invalidate(USER_PAYMENTS_CACHE_KEY);
+    showToast('PAYMENT CONFIRMED — PLAN UPGRADED', 'success');
+    onSuccess();
+  };
 
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,16 +86,19 @@ function CheckoutForm({ offer, intentData, onSuccess }: CheckoutFormProps) {
       { payment_method: { card, billing_details: { name } } }
     );
     if (error) {
-      setErrorMsg(error.message || "Payment failed. Please try again.");
+      const message = error.message || "Payment failed. Please try again.";
+      setErrorMsg(message);
+      showToast(message, 'error');
       setProcessing(false);
       return;
     }
     if (paymentIntent?.status === "succeeded") {
       try {
-        await authService.confirmPayment(paymentIntent.id, offer.id);
-        onSuccess();
+        await handleSuccess(paymentIntent.id);
       } catch (err: any) {
-        setErrorMsg(err.message || "Payment confirmed but profile update failed.");
+        const message = err.message || "Payment confirmed but profile update failed.";
+        setErrorMsg(message);
+        showToast(message, 'error');
         setProcessing(false);
       }
     }
