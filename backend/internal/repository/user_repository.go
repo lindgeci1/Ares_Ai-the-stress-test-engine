@@ -104,6 +104,18 @@ func (r *UserRepository) GetByID(id uint) (*models.User, error) {
 	return &user, nil
 }
 
+func (r *UserRepository) GetUserUsage(userID uint) (*models.UserUsage, error) {
+	var usage models.UserUsage
+	if err := r.db.Where("user_id = ?", userID).First(&usage).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("user usage not found")
+		}
+		return nil, fmt.Errorf("get user usage: %w", err)
+	}
+
+	return &usage, nil
+}
+
 // GetByEmail retrieves a user by email with preloaded roles
 func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	var user models.User

@@ -390,15 +390,14 @@ export function Landing() {
             READY TO STRESS-TEST?
           </h3>
           <p className="font-sans text-sm text-[#666] mb-8 max-w-xl mx-auto">
-            Upload your first document and watch two AI agents tear it apart —
-            then rebuild it stronger.
+            Upload your documents and watch two AI agents tear them apart —
+            then rebuild them stronger.
           </p>
-          <button
-            onClick={() => setShowAuthModal(true)}
-            className="px-10 py-4 bg-[#EF4444] text-white font-mono text-sm font-bold tracking-widest hover:bg-[#dc2626] transition-colors">
-
-            INITIATE FIRST AUDIT — FREE
-          </button>
+          <Link
+            to="/auth"
+            className="inline-block px-10 py-4 bg-[#EF4444] text-white font-mono text-sm font-bold tracking-widest hover:bg-[#dc2626] transition-colors">
+            GET STARTED
+          </Link>
         </div>
       </section>
 

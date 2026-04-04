@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboardIcon,
   FlaskConicalIcon,
+  ActivityIcon,
   CreditCardIcon,
   ZapIcon,
   ChevronUpIcon,
@@ -10,7 +11,8 @@ import {
   PanelLeftIcon,
   XIcon,
   ChevronLeftIcon,
-  ChevronRightIcon } from
+  ChevronRightIcon,
+} from
 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/useToast';
@@ -126,48 +128,80 @@ export function Layout({ children }: LayoutProps) {
 
         {/* Logo row */}
         <div
-          className={`flex items-center border-b border-[#262626] flex-shrink-0 ${collapsed ? 'justify-center px-0 py-5' : 'px-4 py-5'}`}>
+          className={`flex items-center border-b border-[#262626] flex-shrink-0 ${
+            collapsed ? 'flex-col gap-1 px-0 py-3' : 'px-4 py-5'
+          }`}>
 
-          {!collapsed &&
-          <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <ZapIcon className="w-4 h-4 text-[#EF4444] flex-shrink-0" />
-                <span className="font-mono text-sm font-bold text-white tracking-widest">
-                  ARES AI
-                </span>
-              </div>
-              <p className="font-mono text-[10px] text-[#404040] mt-1 tracking-widest">
-                STRESS-TEST ENGINE
-              </p>
+          {collapsed ? (
+            <div className="flex flex-col items-center gap-1">
+              <button
+                onClick={() => setCollapsed(false)}
+                className="flex items-center justify-center w-8 h-8 text-[#EF4444] hover:bg-[#0a0a0a] transition-colors"
+                title="Expand sidebar"
+              >
+                <ZapIcon className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCollapsed(false)}
+                className="flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white hover:border-[#404040] transition-colors"
+                title="Expand sidebar"
+              >
+                <ChevronRightIcon className="w-3 h-3" />
+              </button>
             </div>
-          }
-          {collapsed && <ZapIcon className="w-4 h-4 text-[#EF4444]" />}
+          ) : (
+            <>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <ZapIcon className="w-4 h-4 text-[#EF4444] flex-shrink-0" />
+                  <span className="font-mono text-sm font-bold text-white tracking-widest">
+                    ARES AI
+                  </span>
+                </div>
+                <p className="font-mono text-[10px] text-[#404040] mt-1 tracking-widest">
+                  STRESS-TEST ENGINE
+                </p>
+              </div>
+              <button
+                onClick={() => setCollapsed(true)}
+                className="hidden lg:flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white hover:border-[#404040] transition-colors flex-shrink-0 ml-2"
+              >
+                <ChevronLeftIcon className="w-3 h-3" />
+              </button>
+            </>
+          )}
 
-          {/* Desktop collapse toggle */}
-          <button
-            onClick={() => setCollapsed((c) => !c)}
-            className={`hidden lg:flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white hover:border-[#404040] transition-colors flex-shrink-0 ${collapsed ? 'mt-0' : 'ml-2'}`}>
-
-            {collapsed ?
-            <ChevronRightIcon className="w-3 h-3" /> :
-
-            <ChevronLeftIcon className="w-3 h-3" />
-            }
-          </button>
-
-          {/* Mobile close button */}
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="lg:hidden flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white transition-colors ml-2 flex-shrink-0">
-
-            <XIcon className="w-3 h-3" />
-          </button>
+          {/* Mobile close — only when expanded */}
+          {!collapsed && (
+            <button
+              onClick={() => setMobileOpen(false)}
+              className="lg:hidden flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white transition-colors ml-2 flex-shrink-0"
+            >
+              <XIcon className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-hidden">
           {navItems.map(({ path, label, icon: Icon }) => {
             const active = isActive(path);
+
+            if (label === 'AUDIT LAB') {
+              return (
+                <div
+                  key={path}
+                  className={`flex items-center gap-3 py-2.5 text-[#333] cursor-not-allowed ${collapsed ? 'px-0 justify-center' : 'px-4'}`}
+                  title="Select a document from Dashboard to inspect"
+                >
+                  <ActivityIcon className="w-4 h-4" />
+                  {!collapsed && (
+                    <span className="font-mono text-[10px] tracking-widest">AUDIT LAB</span>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <Link
                 key={path}

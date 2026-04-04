@@ -1,12 +1,23 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { Link, useParams, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import {
+  authService,
+  type Document,
+  type HeatmapSegment,
+  type Vulnerability,
+  type LogicalFallacy,
+  type FortificationStep,
+} from '../services/authService';
 import {
   PlayIcon,
   PauseIcon,
-  SendIcon,
-  AlertTriangleIcon,
-  ShieldIcon,
   SwordIcon,
+  ShieldIcon,
+  AlertTriangleIcon,
+  RefreshCwIcon,
+  FileTextIcon,
+  XIcon,
   TerminalIcon,
   ZapIcon,
   ChevronDownIcon,
@@ -15,339 +26,332 @@ import {
   BrainIcon,
   WrenchIcon } from
 'lucide-react';
-type HeatLevel = 'red' | 'yellow' | 'green' | 'neutral';
-type TextSegment = {
-  text: string;
-  heat: HeatLevel;
-  note?: string;
-};
 type BattleEntry = {
   role: 'AUDITOR' | 'OPTIMIST' | 'SYSTEM' | 'USER';
   text: string;
   time: string;
-  round: number;
 };
+
 type DiagnosticTab = 'vulnerabilities' | 'fallacies' | 'fortification';
-const DOCUMENT_SEGMENTS: TextSegment[] = [
-{
-  text: 'TERMS OF SERVICE — EFFECTIVE DATE: JANUARY 1, 2025\n\n',
-  heat: 'neutral'
-},
-{
-  text: '1. ACCEPTANCE OF TERMS\n\n',
-  heat: 'neutral'
-},
-{
-  text: 'By accessing or using our services, you agree to be bound by these Terms of Service and all applicable laws and regulations.',
-  heat: 'green',
-  note: 'Standard acceptance clause — well-defined'
-},
-{
-  text: ' Your continued use of the service constitutes acceptance of any modifications.',
-  heat: 'yellow',
-  note: 'Unilateral modification without notice — moderate risk'
-},
-{
-  text: '\n\n2. DATA COLLECTION AND USE\n\n',
-  heat: 'neutral'
-},
-{
-  text: 'We collect information you provide directly to us, including name, email address, and payment information.',
-  heat: 'green',
-  note: 'Explicit data collection — compliant'
-},
-{
-  text: ' We may also collect data from third-party sources and combine it with information we have about you.',
-  heat: 'red',
-  note: 'CRITICAL: Undefined third-party data sources — GDPR violation risk'
-},
-{
-  text: '\n\n3. INTELLECTUAL PROPERTY\n\n',
-  heat: 'neutral'
-},
-{
-  text: 'All content, features, and functionality are owned by the Company and are protected by international copyright laws.',
-  heat: 'green',
-  note: 'Standard IP clause'
-},
-{
-  text: '\n\n4. LIMITATION OF LIABILITY\n\n',
-  heat: 'neutral'
-},
-{
-  text: 'To the maximum extent permitted by law, the Company shall not be liable for any indirect, incidental, special, or consequential damages.',
-  heat: 'yellow',
-  note: 'Broad liability waiver — may not be enforceable in all jurisdictions'
-},
-{
-  text: ' This includes loss of profits, data, or business opportunities arising from your use of the service.',
-  heat: 'red',
-  note: 'CRITICAL: Data loss liability waiver — high user impact'
-},
-{
-  text: '\n\n5. ARBITRATION\n\n',
-  heat: 'neutral'
-},
-{
-  text: 'Any dispute arising from these terms shall be resolved through binding arbitration.',
-  heat: 'red',
-  note: 'CRITICAL: Mandatory arbitration eliminates class action rights'
-},
-{
-  text: ' The arbitration shall be conducted in Delaware under AAA Commercial Arbitration Rules.',
-  heat: 'yellow',
-  note: 'Venue may be inconvenient for non-US users'
-}];
 
-const BATTLE_LOG: BattleEntry[] = [
-{
-  role: 'SYSTEM',
-  text: 'AUDIT INITIATED — DOCUMENT: Terms_of_Service_v4.2.pdf — 3 ROUNDS SCHEDULED',
-  time: '00:00:00',
-  round: 0
-},
-{
-  role: 'AUDITOR',
-  text: 'THREAT IDENTIFIED [SEVERITY: HIGH]: Section 2 permits data collection from undefined "third-party sources" — no consent mechanism specified. GDPR Article 13 violation.',
-  time: '00:00:45',
-  round: 1
-},
-{
-  role: 'OPTIMIST',
-  text: 'DEFENSE: Industry standard practice. Third-party sources are implicitly defined by context. Privacy Policy Exhibit B provides supplementary definitions.',
-  time: '00:01:12',
-  round: 1
-},
-{
-  role: 'AUDITOR',
-  text: 'ESCALATION: Exhibit B is not incorporated by reference in this clause. Standalone reading creates ambiguity. Courts have ruled against similar language in FTC v. DataBroker (2023).',
-  time: '00:01:38',
-  round: 1
-},
-{
-  role: 'OPTIMIST',
-  text: 'COUNTER: FTC ruling applies to consumer data brokers, not SaaS platforms. Recital 47 of GDPR permits legitimate interest processing for service improvement.',
-  time: '00:02:05',
-  round: 1
-},
-{
-  role: 'SYSTEM',
-  text: 'ROUND 1 COMPLETE — AUDITOR WINS — SCORE IMPACT: -8 POINTS — SURVIVAL: 58%',
-  time: '00:02:30',
-  round: 1
-},
-{
-  role: 'AUDITOR',
-  text: 'CRITICAL THREAT [SEVERITY: CRITICAL]: Section 5 mandatory arbitration clause eliminates class action rights without clear disclosure. CFPB guidelines require prominent notice.',
-  time: '00:03:00',
-  round: 2
-},
-{
-  role: 'OPTIMIST',
-  text: 'DEFENSE: Arbitration clause is in bold text per Section 5 header. User must scroll past it to complete registration — constructive notice established.',
-  time: '00:03:28',
-  round: 2
-},
-{
-  role: 'SYSTEM',
-  text: 'ROUND 2 IN PROGRESS — CURRENT SURVIVAL: 58% — NEXT ROUND IN 00:30',
-  time: '00:03:45',
-  round: 2
-}];
+function asArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  return [];
+}
 
-const VULNERABILITIES = [
-{
-  id: 'VLN-001',
-  severity: 'CRITICAL',
-  section: 'Section 2 — Data Collection',
-  title: 'Undefined Third-Party Data Sources',
-  detail:
-  'The clause "We may also collect data from third-party sources" lacks specificity. Under GDPR Article 13(1)(e) and CCPA §1798.100, data subjects must be informed of the specific categories of third parties from whom data is collected. This clause is unenforceable in EU jurisdictions and exposes the company to regulatory fines up to 4% of global annual turnover.',
-  precedent:
-  'FTC v. DataBroker LLC (2023) — Clause struck down for identical vagueness.'
-},
-{
-  id: 'VLN-002',
-  severity: 'CRITICAL',
-  section: 'Section 5 — Arbitration',
-  title: 'Mandatory Arbitration Without Prominent Disclosure',
-  detail:
-  'The arbitration clause eliminates the user\'s right to class action litigation without meeting the "clear and conspicuous" disclosure standard required by CFPB guidelines and the Dodd-Frank Act. Placement within a dense ToS document does not satisfy the notice requirement. California courts have consistently invalidated similar clauses under McGill v. Citibank (2017).',
-  precedent:
-  'McGill v. Citibank N.A. (2017) — Arbitration clause voided for insufficient disclosure.'
-},
-{
-  id: 'VLN-003',
-  severity: 'HIGH',
-  section: 'Section 4 — Limitation of Liability',
-  title: 'Overbroad Data Loss Liability Waiver',
-  detail:
-  'Waiving liability for "loss of data" without carve-outs for gross negligence or willful misconduct violates consumer protection statutes in 14 US states and is categorically unenforceable under EU Directive 93/13/EEC on unfair contract terms. Courts in Germany, France, and the UK have awarded damages against companies relying on identical language.',
-  precedent:
-  'Unfair Terms in Consumer Contracts Regulations 1999 (UK) — Blanket data loss waivers void.'
-},
-{
-  id: 'VLN-004',
-  severity: 'MODERATE',
-  section: 'Section 1 — Acceptance',
-  title: 'Unilateral Modification Without Notice',
-  detail:
-  '"Continued use constitutes acceptance" of modifications fails the mutual assent requirement for contract formation under Restatement (Second) of Contracts §69. Users cannot be bound by terms they have no reasonable opportunity to review. This clause is particularly vulnerable to challenge when material terms (pricing, data use) are modified.',
-  precedent:
-  'Nguyen v. Barnes & Noble Inc. (9th Cir. 2014) — Browsewrap agreement invalidated.'
-}];
-
-const FALLACIES = [
-{
-  id: 'LF-001',
-  type: 'INTERNAL CONTRADICTION',
-  sections: 'Section 2 vs. Section 3',
-  title: 'Data Ownership vs. Data Collection Scope',
-  detail:
-  'Section 3 asserts "all content... is owned by the Company" while Section 2 claims the right to collect and combine user-provided data with third-party data. If user-provided data is company property, the legal basis for third-party data combination shifts from consent to ownership — a legally incoherent position that undermines both clauses simultaneously.'
-},
-{
-  id: 'LF-002',
-  type: 'CIRCULAR REASONING',
-  sections: 'Section 1 vs. Section 5',
-  title: 'Consent Mechanism Undermines Arbitration Validity',
-  detail:
-  'Section 1 establishes acceptance via "continued use" (passive consent). Section 5 requires arbitration for "any dispute arising from these terms." However, if the acceptance mechanism itself is disputed (as in VLN-004), the arbitration clause cannot be invoked to resolve that dispute — the clause is self-defeating in the exact scenario where it is most needed.'
-},
-{
-  id: 'LF-003',
-  type: 'SCOPE CREEP',
-  sections: 'Section 4',
-  title: 'Liability Waiver Exceeds Jurisdictional Authority',
-  detail:
-  'The phrase "to the maximum extent permitted by law" implicitly acknowledges that the waiver may be partially invalid, yet the document provides no fallback position for jurisdictions where the full waiver is unenforceable. This creates a legal vacuum: in those jurisdictions, the entire liability framework is undefined, exposing the company to uncapped liability.'
-}];
-
-const FORTIFICATION = [
-{
-  step: '01',
-  priority: 'CRITICAL',
-  title: 'Rewrite Section 2 — Enumerate Third-Party Data Sources',
-  fixes: ['VLN-001', 'LF-001'],
-  action:
-  'Replace the vague "third-party sources" language with an explicit, enumerated list. Create a linked "Data Sources Annex" that catalogs each category (e.g., "analytics providers," "payment processors," "identity verification services"). Incorporate the Annex by reference in Section 2 with the exact clause: "as further described in the Data Sources Annex, incorporated herein by reference." This simultaneously resolves the GDPR Article 13 violation (VLN-001) and eliminates the data ownership contradiction with Section 3 (LF-001), because once data collection scope is precisely bounded, the IP ownership claim in Section 3 no longer conflicts with it.',
-  effort: 'HIGH',
-  impact: 'ELIMINATES VLN-001 · RESOLVES LF-001'
-},
-{
-  step: '02',
-  priority: 'CRITICAL',
-  title: 'Add Standalone Arbitration Disclosure + Fix Consent Loop',
-  fixes: ['VLN-002', 'LF-002'],
-  action:
-  'Create a separate, single-purpose disclosure page that users must affirmatively acknowledge before account creation. The page must contain only the arbitration notice in 14pt+ font, a plain-language summary ("By agreeing, you waive your right to sue in court or participate in class actions"), and a checkbox: "I understand and agree to resolve disputes through individual arbitration." Log this acknowledgment with a timestamp. This also directly resolves the circular reasoning in LF-002: because the acceptance mechanism (Section 1) will now be active/explicit rather than passive, the arbitration clause can no longer be self-defeating — a user who disputes the acceptance mechanism will have a logged, affirmative consent record that pre-empts the challenge.',
-  effort: 'MEDIUM',
-  impact: 'ELIMINATES VLN-002 · RESOLVES LF-002'
-},
-{
-  step: '03',
-  priority: 'HIGH',
-  title: 'Carve Out Gross Negligence + Add Jurisdiction Fallback',
-  fixes: ['VLN-003', 'LF-003'],
-  action:
-  'Amend Section 4 to add: "Notwithstanding the foregoing, nothing in this Agreement shall limit the Company\'s liability for: (i) death or personal injury caused by negligence; (ii) fraud or fraudulent misrepresentation; (iii) gross negligence or willful misconduct; or (iv) any liability that cannot be excluded or limited under applicable law." Additionally, add a jurisdiction-specific fallback clause: "In jurisdictions where any part of this limitation is unenforceable, liability shall be limited to the maximum extent permitted by applicable law, and the remaining provisions shall continue in full force." This directly resolves LF-003 (scope creep) by providing an explicit fallback position, eliminating the legal vacuum that currently exposes the company to uncapped liability in non-compliant jurisdictions.',
-  effort: 'LOW',
-  impact: 'ELIMINATES VLN-003 · RESOLVES LF-003'
-},
-{
-  step: '04',
-  priority: 'MODERATE',
-  title: 'Implement Active Notice for Material Modifications',
-  fixes: ['VLN-004'],
-  action:
-  'Replace "continued use constitutes acceptance" with a 30-day advance email notification requirement for material changes. Define "material changes" explicitly (pricing, data use, dispute resolution, liability). Add a 30-day opt-out window with account termination and pro-rated refund rights. Include the clause: "For the avoidance of doubt, continued use of the Service following the opt-out period shall constitute acceptance of the modified terms only with respect to non-material changes." This converts passive acceptance to active consent and satisfies mutual assent requirements across all common law jurisdictions, eliminating the browsewrap vulnerability identified in VLN-004.',
-  effort: 'MEDIUM',
-  impact: 'ELIMINATES VLN-004'
-}];
-
-const SCAN_MESSAGES = [
-'INITIALIZING ARES PROTOCOL...',
-'EXTRACTING DOCUMENT RAW TEXT...',
-'SCANNING FOR EXTERNAL VULNERABILITIES...',
-'MAPPING INTERNAL LOGICAL FALLACIES...',
-'GENERATING RED/BLUE TEAM AUDIO DEBATE...',
-'FINALIZING SURVIVAL SCORE...'];
-
-function WaveformBar({ color, delay }: {color: string;delay: number;}) {
+function WaveformBar({ color, delay, isActive }: {color: string;delay: number;isActive: boolean;}) {
   return (
     <div
       className="w-1 flex-shrink-0"
       style={{
         backgroundColor: color,
         height: `${8 + Math.random() * 32}px`,
-        animation: `${color === '#EF4444' ? 'wave-red' : 'wave-blue'} ${0.5 + Math.random() * 0.8}s ease-in-out infinite`,
+        animation:
+        isActive ?
+        `${color === '#EF4444' ? 'wave-red' : color === '#3B82F6' ? 'wave-blue' : 'wave-gray'} ${0.5 + Math.random() * 0.8}s ease-in-out infinite` :
+        'none',
         animationDelay: `${delay}ms`,
-        opacity: 0.7 + Math.random() * 0.3
+        opacity: isActive ? 0.7 + Math.random() * 0.3 : 0.15
       }} />);
 
 
 }
+
+function parseTranscript(transcript: unknown): BattleEntry[] {
+  if (!transcript) {
+    return [];
+  }
+
+  if (Array.isArray(transcript)) {
+    return transcript as BattleEntry[];
+  }
+
+  if (typeof transcript === 'string') {
+    try {
+      const parsed = JSON.parse(transcript);
+      return Array.isArray(parsed) ? (parsed as BattleEntry[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function timeToSeconds(time: string): number {
+  const parts = time.split(':').map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] || 0;
+}
+
 export function AuditLab() {
   const { id } = useParams();
+  const { user, refreshUser } = useAuth();
+
   const location = useLocation();
+  const isNewAudit = Boolean(location.state?.isNewAudit);
+
+  const [document, setDocument] = useState<Document | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const quotaRefreshDoneRef = useRef(false);
+
   // ── SCANNING STATE ──
-  const [isScanning, setIsScanning] = useState(
-    location.state?.isNewAudit || false
-  );
+  const [isScanning, setIsScanning] = useState(isNewAudit);
   const [scanProgress, setScanProgress] = useState(0);
-  const [scanMsgIndex, setScanMsgIndex] = useState(0);
-  const [cursorVisible, setCursorVisible] = useState(true);
+  const [scanMessage, setScanMessage] = useState('INITIALIZING ARES PROTOCOL...');
+
   useEffect(() => {
-    if (!isScanning) return;
-    // Blinking cursor — 500ms toggle
-    const cursorInterval = setInterval(() => setCursorVisible((v) => !v), 500);
-    // Message cycling — 800ms per message
-    const msgInterval = setInterval(() => {
-      setScanMsgIndex((i) => {
-        if (i < SCAN_MESSAGES.length - 1) return i + 1;
-        clearInterval(msgInterval);
-        return i;
-      });
-    }, 800);
-    // Progress bar — fills over total duration
-    const totalDuration = SCAN_MESSAGES.length * 800 + 400;
-    const tickMs = 50;
-    const progressInterval = setInterval(() => {
-      setScanProgress((p) => {
-        const next = p + 100 / (totalDuration / tickMs);
-        return next >= 100 ? 100 : next;
-      });
-    }, tickMs);
-    // Finish
-    const finishTimer = setTimeout(() => {
-      setScanProgress(100);
-      clearInterval(progressInterval);
-      clearInterval(msgInterval);
-      clearInterval(cursorInterval);
-      setTimeout(() => setIsScanning(false), 300);
-    }, totalDuration);
-    return () => {
-      clearInterval(cursorInterval);
-      clearInterval(msgInterval);
-      clearInterval(progressInterval);
-      clearTimeout(finishTimer);
+    if (!id) return;
+
+    let cancelled = false;
+    let finalizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let revealTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchDocument = async () => {
+      try {
+        const doc = await authService.getDocumentById(Number(id));
+        if (cancelled) return;
+
+        setDocument(doc);
+        setError(null);
+
+        if (doc.status === 'failed') {
+          setScanProgress(100);
+          setScanMessage('AUDIT FAILED — CHECK SYSTEM LOGS');
+          setIsScanning(false);
+          setLoading(false);
+          setError('Document processing failed. Please retry this audit.');
+          return;
+        }
+
+        if (doc.status === 'processed') {
+          if (!quotaRefreshDoneRef.current) {
+            quotaRefreshDoneRef.current = true;
+            refreshUser().catch((refreshErr) => {
+              console.error('Failed to refresh quota after processing:', refreshErr);
+            });
+          }
+
+          setScanProgress(90);
+          setScanMessage('FINALIZING AUDIO SYNTHESIS...');
+
+          finalizeTimer = setTimeout(() => {
+            if (cancelled) return;
+            setScanProgress(100);
+            setScanMessage('AUDIT COMPLETE');
+
+            revealTimer = setTimeout(() => {
+              if (cancelled) return;
+              setIsScanning(false);
+              setLoading(false);
+            }, 800);
+          }, 600);
+
+          return;
+        }
+
+        if (doc.raw_text && doc.raw_text.length > 0) {
+          setScanProgress(60);
+          setScanMessage('GENERATING RED/BLUE TEAM AUDIO DEBATE...');
+        } else {
+          setScanProgress((prev) => Math.min(prev + 2, 30));
+          setScanMessage('EXTRACTING DOCUMENT RAW TEXT...');
+        }
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'Failed to fetch audit document';
+        setError(message);
+        setLoading(false);
+        setIsScanning(false);
+      }
     };
-  }, []);
+
+    if (isScanning || loading) {
+      fetchDocument();
+      const interval = setInterval(fetchDocument, 3000);
+      return () => {
+        cancelled = true;
+        if (finalizeTimer) clearTimeout(finalizeTimer);
+        if (revealTimer) clearTimeout(revealTimer);
+        clearInterval(interval);
+      };
+    }
+
+    fetchDocument();
+
+    return () => {
+      cancelled = true;
+      if (finalizeTimer) clearTimeout(finalizeTimer);
+      if (revealTimer) clearTimeout(revealTimer);
+    };
+  }, [id, isScanning, loading, refreshUser]);
+
   // ── AUDIT LAB STATE ──
   const [isPlaying, setIsPlaying] = useState(false);
-  const [rebuttal, setRebuttal] = useState('');
-  const [activeHeat, setActiveHeat] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState('00:00:00');
+  const [audioDuration, setAudioDuration] = useState('00:00:00');
+  const [activeSpeaker, setActiveSpeaker] = useState<string | null>(null);
+  const [activeEntryIndex, setActiveEntryIndex] = useState(-1);
   const [activeTab, setActiveTab] = useState<DiagnosticTab>('vulnerabilities');
+  const [selectedRound, setSelectedRound] = useState<number>(0);
+  const [showReAudit, setShowReAudit] = useState(false);
+  const [reAuditFile, setReAuditFile] = useState<File | null>(null);
+  const [reAuditing, setReAuditing] = useState(false);
+  const reAuditFileRef = useRef<HTMLInputElement>(null);
+  const [activeHeat, setActiveHeat] = useState<string | null>(null);
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(
     new Set(['VLN-001'])
   );
   const [showDiagnostic, setShowDiagnostic] = useState(false);
+  const auditReports = document?.audit_reports || [];
+  const audioDebates = document?.audio_debates || [];
+  const totalRounds = document?.rounds_used || 1;
+  const displayRound = selectedRound || totalRounds;
+  const availableRounds = Array.from(
+    new Set([
+      ...auditReports.map((report) => report.round_number),
+      ...audioDebates.map((debate) => debate.round_number),
+      totalRounds,
+    ])
+  ).sort((a, b) => a - b);
+  const currentAuditReport = auditReports.find((report) => report.round_number === displayRound) || null;
+  const currentAudioDebate = audioDebates.find((debate) => debate.round_number === displayRound) || null;
+  const transcript = parseTranscript(currentAudioDebate?.transcript_json);
+  const maxRounds = user?.user_usage?.rounds_per_audit || 3;
+  const canReAudit = totalRounds < maxRounds && document?.status === 'processed';
+  const heatmapSegments: HeatmapSegment[] = (() => {
+    const data = currentAuditReport?.heatmap_data;
+    if (!data) return [];
+    if (Array.isArray(data)) return data as HeatmapSegment[];
+    if (Array.isArray((data as { segments?: unknown[] }).segments)) {
+      return (data as { segments: HeatmapSegment[] }).segments;
+    }
+    return [];
+  })();
+  const vulnerabilities: Vulnerability[] = asArray<Vulnerability>(currentAuditReport?.vulnerabilities);
+  const fallacies: LogicalFallacy[] = asArray<LogicalFallacy>(currentAuditReport?.logical_fallacies);
+  const fortification: FortificationStep[] = (() => {
+    const data = currentAuditReport?.fortification_plan;
+    if (!data) return [];
+    if (Array.isArray(data)) return data as FortificationStep[];
+    if (Array.isArray((data as { steps?: unknown[] }).steps)) {
+      return (data as { steps: FortificationStep[] }).steps;
+    }
+    return [];
+  })();
   const battleLogRef = useRef<HTMLDivElement>(null);
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  };
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (!audioRef.current) return;
+    const current = audioRef.current.currentTime;
+    const total = audioRef.current.duration || 1;
+    setAudioProgress((current / total) * 100);
+    setCurrentTime(formatTime(current));
+
+    if (transcript.length > 0) {
+      let currentIndex = -1;
+      let currentSpeaker: string | null = null;
+      for (let i = 0; i < transcript.length; i++) {
+        const entrySeconds = timeToSeconds(transcript[i].time);
+        if (current >= entrySeconds) {
+          currentIndex = i;
+          currentSpeaker = transcript[i].role;
+        } else {
+          break;
+        }
+      }
+
+      setActiveEntryIndex(currentIndex);
+      setActiveSpeaker(currentSpeaker);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (!audioRef.current) return;
+    setAudioDuration(formatTime(audioRef.current.duration));
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    audioRef.current.currentTime = percent * audioRef.current.duration;
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    setAudioProgress(0);
+    setCurrentTime('00:00:00');
+    setActiveSpeaker(null);
+    setActiveEntryIndex(transcript.length - 1);
+  };
+
+  const handleReAudit = async () => {
+    if (!reAuditFile || !document) return;
+
+    setReAuditing(true);
+    try {
+      await authService.reAuditDocument(document.id, reAuditFile);
+      setShowReAudit(false);
+      setReAuditFile(null);
+      setSelectedRound(0);
+      setIsScanning(true);
+      setLoading(true);
+      setScanProgress(0);
+      setScanMessage('INITIALIZING ARES PROTOCOL...');
+    } catch (err) {
+      console.error('Re-audit failed:', err);
+    } finally {
+      setReAuditing(false);
+    }
+  };
+
   useEffect(() => {
-    if (!isScanning && battleLogRef.current) {
+    if (!isPlaying || activeEntryIndex < 0 || !battleLogRef.current) return;
+
+    const entryEl = battleLogRef.current.querySelector(`[data-entry-index="${activeEntryIndex}"]`);
+    if (entryEl) {
+      entryEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeEntryIndex, isPlaying]);
+
+  useEffect(() => {
+    if (battleLogRef.current) {
       battleLogRef.current.scrollTop = battleLogRef.current.scrollHeight;
     }
-  }, [isScanning]);
+  }, [isScanning, transcript]);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setAudioProgress(0);
+    setCurrentTime('00:00:00');
+    setActiveSpeaker(null);
+    setActiveEntryIndex(-1);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, [selectedRound]);
   const toggleAccordion = (accordionId: string) => {
     setOpenAccordions((prev) => {
       const next = new Set(prev);
@@ -356,9 +360,11 @@ export function AuditLab() {
       return next;
     });
   };
-  const survivalScore = 58;
+  const survivalScore = currentAuditReport?.resilience_score ?? null;
   const scoreColor =
-  survivalScore < 40 ? '#EF4444' : survivalScore < 70 ? '#EAB308' : '#22C55E';
+    survivalScore === null ? '#404040' : survivalScore < 40 ? '#EF4444' : survivalScore < 70 ? '#EAB308' : '#22C55E';
+  const scoreLabel =
+    survivalScore === null ? 'N/A' : survivalScore < 40 ? 'CRITICAL' : survivalScore < 70 ? 'MODERATE' : 'RESILIENT';
   const TABS: {
     id: DiagnosticTab;
     label: string;
@@ -369,20 +375,46 @@ export function AuditLab() {
     id: 'vulnerabilities',
     label: 'VULNERABILITIES',
     icon: FileWarningIcon,
-    count: VULNERABILITIES.length
+    count: vulnerabilities.length
   },
   {
     id: 'fallacies',
     label: 'LOGICAL FALLACIES',
     icon: BrainIcon,
-    count: FALLACIES.length
+    count: fallacies.length
   },
   {
     id: 'fortification',
     label: 'FORTIFICATION PLAN',
     icon: WrenchIcon,
-    count: FORTIFICATION.length
+    count: fortification.length
   }];
+
+  if (!id) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <span className="font-mono text-[10px] text-[#404040] tracking-widest">
+            NO DOCUMENT SELECTED — GO TO DASHBOARD
+          </span>
+          <Link
+            to="/dashboard"
+            className="block mt-4 font-mono text-[10px] text-[#EF4444] hover:text-white transition-colors tracking-widest"
+          >
+            → OPEN DASHBOARD
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading && !document) {
+    return (
+      <div className="flex h-full items-center justify-center bg-[#050505]">
+        <span className="font-mono text-[10px] text-[#555] tracking-widest">LOADING AUDIT...</span>
+      </div>
+    );
+  }
 
   // ── SCANNING SCREEN ──
   if (isScanning) {
@@ -422,10 +454,10 @@ export function AuditLab() {
             }}>
 
             <div
-              className="h-full bg-[#EF4444]"
+              className="h-full transition-all duration-500"
               style={{
                 width: `${scanProgress}%`,
-                transition: 'none'
+                backgroundColor: scanProgress >= 100 && !scanMessage.includes('FAILED') ? '#22C55E' : '#EF4444'
               }} />
 
           </div>
@@ -440,40 +472,69 @@ export function AuditLab() {
               </span>
             </div>
             <div className="px-5 py-4 space-y-2">
-              {SCAN_MESSAGES.slice(0, scanMsgIndex + 1).map((msg, i) => {
-                const isCurrent = i === scanMsgIndex;
-                const isDone = i < scanMsgIndex;
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <span
-                      className={`font-mono text-[9px] flex-shrink-0 ${isCurrent ? 'text-[#EF4444]' : 'text-[#2a2a2a]'}`}>
+              {scanProgress > 0 &&
+              <div className="flex items-center gap-3">
+                  <span className="font-mono text-[9px] text-[#22C55E]">{'>'}</span>
+                  <span className="font-mono text-[10px] text-[#404040]">
+                    INITIALIZING ARES PROTOCOL...
+                  </span>
+                  <span className="font-mono text-[9px] text-[#22C55E] ml-auto">OK</span>
+                </div>
+              }
 
-                      {'>'}
-                    </span>
-                    <span
-                      className={`font-mono text-xs tracking-wide flex-1 ${isCurrent ? 'text-white' : 'text-[#2a2a2a]'}`}>
+              {scanProgress >= 30 &&
+              <div className="flex items-center gap-3">
+                  <span className="font-mono text-[9px] text-[#22C55E]">{'>'}</span>
+                  <span className="font-mono text-[10px] text-[#404040]">
+                    EXTRACTING DOCUMENT RAW TEXT...
+                  </span>
+                  <span className="font-mono text-[9px] text-[#22C55E] ml-auto">OK</span>
+                </div>
+              }
 
-                      {msg}
-                      {isCurrent &&
-                      <span
-                        className="ml-1 text-[#EF4444]"
-                        style={{
-                          opacity: cursorVisible ? 1 : 0,
-                          transition: 'none'
-                        }}>
+              {scanProgress >= 60 &&
+              <div className="flex items-center gap-3">
+                  <span className="font-mono text-[9px] text-[#22C55E]">{'>'}</span>
+                  <span className="font-mono text-[10px] text-[#404040]">
+                    GENERATING RED/BLUE TEAM AUDIO DEBATE...
+                  </span>
+                  {scanProgress >= 90 ?
+                <span className="font-mono text-[9px] text-[#22C55E] ml-auto">OK</span> :
+                <span className="font-mono text-[9px] text-[#EF4444] ml-auto animate-pulse">PROCESSING</span>
+                }
+                </div>
+              }
 
-                          █
-                        </span>
-                      }
-                    </span>
-                    {isDone &&
-                    <span className="font-mono text-[9px] text-[#22C55E] flex-shrink-0 ml-auto">
-                        OK
-                      </span>
-                    }
-                  </div>);
+              {scanProgress >= 90 &&
+              <div className="flex items-center gap-3">
+                  <span className="font-mono text-[9px] text-[#22C55E]">{'>'}</span>
+                  <span className="font-mono text-[10px] text-[#404040]">
+                    FINALIZING AUDIO SYNTHESIS...
+                  </span>
+                  {scanProgress >= 100 ?
+                <span className="font-mono text-[9px] text-[#22C55E] ml-auto">OK</span> :
+                <span className="font-mono text-[9px] text-[#EF4444] ml-auto animate-pulse">PROCESSING</span>
+                }
+                </div>
+              }
 
-              })}
+              {scanProgress >= 100 && scanMessage === 'AUDIT COMPLETE' &&
+              <div className="flex items-center gap-3 mt-2">
+                  <span className="font-mono text-[9px] text-[#22C55E]">{'>'}</span>
+                  <span className="font-mono text-[10px] text-[#22C55E] font-bold">
+                    AUDIT COMPLETE — LOADING RESULTS...
+                  </span>
+                </div>
+              }
+
+              {scanMessage.includes('FAILED') &&
+              <div className="flex items-center gap-3 mt-2">
+                  <span className="font-mono text-[9px] text-[#EF4444]">{'>'}</span>
+                  <span className="font-mono text-[10px] text-[#EF4444] font-bold">
+                    {scanMessage}
+                  </span>
+                </div>
+              }
             </div>
           </div>
         </div>
@@ -493,6 +554,23 @@ export function AuditLab() {
       </div>);
 
   }
+
+  if (document?.status === 'failed') {
+    return (
+      <div className="flex h-full items-center justify-center bg-[#050505] px-6">
+        <div className="w-full max-w-xl border border-[#EF4444]/30 bg-[#080808] p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangleIcon className="w-4 h-4 text-[#EF4444]" />
+            <span className="font-mono text-xs text-[#EF4444] tracking-widest">AUDIT PROCESSING FAILED</span>
+          </div>
+          <p className="font-mono text-[10px] text-[#777] leading-relaxed">
+            {error || 'The document pipeline failed. Please upload the document again.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // ── MAIN AUDIT LAB UI ──
   return (
     <div className="flex flex-col h-full bg-[#050505]">
@@ -506,10 +584,25 @@ export function AuditLab() {
           <span className="font-mono text-[10px] text-[#404040]">—</span>
           <span className="font-mono text-[10px] text-[#666]">{id}</span>
           <span className="font-mono text-[9px] text-[#3B82F6] bg-[#3B82F6]/10 border border-[#3B82F6]/20 px-1.5 py-0.5">
-            ACTIVE
+            {(document?.status || 'pending').toUpperCase()}
           </span>
         </div>
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[9px] text-[#404040] tracking-widest">ROUND</span>
+            <select
+              value={displayRound}
+              onChange={(e) => setSelectedRound(Number(e.target.value))}
+              className="bg-[#0a0a0a] border border-[#262626] text-[#999] font-mono text-[10px] px-2 py-1 outline-none focus:border-[#404040]"
+            >
+              {availableRounds.map((round) => (
+                <option key={round} value={round}>
+                  {round}
+                </option>
+              ))}
+            </select>
+            <span className="font-mono text-[9px] text-[#404040]">/ {maxRounds}</span>
+          </div>
           <div className="flex items-center gap-2">
             <span className="font-mono text-[9px] text-[#666] tracking-widest">
               SURVIVAL
@@ -520,19 +613,29 @@ export function AuditLab() {
                 color: scoreColor
               }}>
 
-              {survivalScore}%
+              {survivalScore !== null ? `${survivalScore}%` : 'N/A'}
             </span>
           </div>
           <div className="w-24 h-1 bg-[#1a1a1a]">
-            <div
-              className="h-full"
-              style={{
-                width: `${survivalScore}%`,
-                backgroundColor: scoreColor
-              }} />
+            {survivalScore !== null && (
+              <div
+                className="h-full"
+                style={{
+                  width: `${survivalScore}%`,
+                  backgroundColor: scoreColor
+                }} />
+            )}
 
           </div>
-          <span className="font-mono text-[9px] text-[#404040]">ROUND 2/3</span>
+          <span className="font-mono text-[9px] text-[#404040]">ROUND {displayRound}/{maxRounds}</span>
+          <button
+            onClick={() => setShowReAudit(true)}
+            disabled={!canReAudit}
+            className="flex items-center gap-2 px-3 py-1.5 border border-[#3B82F6] text-[#3B82F6] hover:bg-[#3B82F6]/10 transition-colors font-mono text-[10px] font-bold tracking-widest disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <RefreshCwIcon className="w-3 h-3" />
+            RE-AUDIT
+          </button>
           <button
             onClick={() => setShowDiagnostic(!showDiagnostic)}
             className={`flex items-center gap-2 px-3 py-1.5 font-mono text-[10px] font-bold tracking-widest border transition-colors ${showDiagnostic ? 'bg-[#EF4444] border-[#EF4444] text-white' : 'border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444]/10'}`}>
@@ -557,8 +660,7 @@ export function AuditLab() {
                 DETAILED DIAGNOSTIC REPORT
               </h2>
               <p className="font-mono text-[9px] text-[#404040] mt-1 tracking-wider">
-                DOC: Terms_of_Service_v4.2.pdf · AUDIT ID: {id} · GENERATED:
-                2025-01-28 14:32:07 UTC
+                DOC: {document?.file_name} · AUDIT ID: {id} · ROUND: {displayRound}/{maxRounds} · GENERATED: {currentAuditReport?.created_at ? `${new Date(currentAuditReport.created_at).toISOString().replace('T', ' ').slice(0, 19)} UTC` : 'N/A'}
               </p>
             </div>
             <div className="text-right">
@@ -571,10 +673,10 @@ export function AuditLab() {
                 color: scoreColor
               }}>
 
-                {survivalScore}%
+                {survivalScore !== null ? `${survivalScore}%` : 'N/A'}
               </div>
               <div className="font-mono text-[9px] text-[#EAB308] tracking-widest">
-                MODERATE RISK
+                {scoreLabel === 'N/A' ? 'N/A' : `${scoreLabel} RISK`}
               </div>
             </div>
           </div>
@@ -605,7 +707,7 @@ export function AuditLab() {
           <div className="max-h-[420px] overflow-y-auto battle-log">
             {activeTab === 'vulnerabilities' &&
           <div className="divide-y divide-[#1a1a1a]">
-                {VULNERABILITIES.map((v) =>
+                {vulnerabilities.map((v) =>
             <div key={v.id} className="bg-[#050505]">
                     <button
                 onClick={() => toggleAccordion(v.id)}
@@ -660,7 +762,7 @@ export function AuditLab() {
 
             {activeTab === 'fallacies' &&
           <div className="divide-y divide-[#1a1a1a]">
-                {FALLACIES.map((f) =>
+                {fallacies.map((f) =>
             <div key={f.id} className="bg-[#050505]">
                     <button
                 onClick={() => toggleAccordion(f.id)}
@@ -709,34 +811,34 @@ export function AuditLab() {
                   </span>
                   <span className="font-mono text-[9px] text-[#333]">—</span>
                   <span className="font-mono text-[9px] text-[#333] tracking-wider">
-                    ADDRESSES ALL {VULNERABILITIES.length} VULNERABILITIES + ALL{' '}
-                    {FALLACIES.length} LOGICAL FALLACIES
+                    ADDRESSES ALL {vulnerabilities.length} VULNERABILITIES + ALL{' '}
+                    {fallacies.length} LOGICAL FALLACIES
                   </span>
                   <div className="ml-auto flex items-center gap-2">
                     <span className="font-mono text-[9px] text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/20 px-1.5 py-0.5">
                       {
-                  FORTIFICATION.filter((f) => f.priority === 'CRITICAL').
+                  fortification.filter((f) => f.priority === 'CRITICAL').
                   length
                   }{' '}
                       CRITICAL
                     </span>
                     <span className="font-mono text-[9px] text-[#EAB308] bg-[#EAB308]/10 border border-[#EAB308]/20 px-1.5 py-0.5">
                       {
-                  FORTIFICATION.filter((f) => f.priority === 'HIGH').
+                  fortification.filter((f) => f.priority === 'HIGH').
                   length
                   }{' '}
                       HIGH
                     </span>
                     <span className="font-mono text-[9px] text-[#3B82F6] bg-[#3B82F6]/10 border border-[#3B82F6]/20 px-1.5 py-0.5">
                       {
-                  FORTIFICATION.filter((f) => f.priority === 'MODERATE').
+                  fortification.filter((f) => f.priority === 'MEDIUM').
                   length
                   }{' '}
-                      MODERATE
+                      MEDIUM
                     </span>
                   </div>
                 </div>
-                {FORTIFICATION.map((f) =>
+                {fortification.map((f) =>
             <div key={f.step} className="bg-[#050505]">
                     <button
                 onClick={() => toggleAccordion(`fort-${f.step}`)}
@@ -780,9 +882,9 @@ export function AuditLab() {
                               {f.fixes.map((fix) => {
                         const isVuln = fix.startsWith('VLN');
                         const label = isVuln ?
-                        VULNERABILITIES.find((v) => v.id === fix)?.
+                            vulnerabilities.find((v) => v.id === fix)?.
                         title :
-                        FALLACIES.find((fa) => fa.id === fix)?.title;
+                            fallacies.find((fa) => fa.id === fix)?.title;
                         return (
                           <div
                             key={fix}
@@ -839,6 +941,12 @@ export function AuditLab() {
       }
 
       {/* Main content */}
+      {error && (
+        <div className="mx-4 mt-3 border border-[#EF4444]/20 bg-[#EF4444]/5 px-3 py-2">
+          <span className="font-mono text-[10px] text-[#EF4444] tracking-widest">{error}</span>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {/* LEFT PANE: Document Heatmap */}
         <div className="w-1/2 flex flex-col border-r border-[#262626]">
@@ -846,131 +954,148 @@ export function AuditLab() {
             <span className="font-mono text-[10px] text-[#666] tracking-widest">
               DOCUMENT HEATMAP
             </span>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 bg-[#EF4444]/40 border border-[#EF4444]/60" />
-                <span className="font-mono text-[9px] text-[#404040]">
-                  CRITICAL
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 bg-yellow-400/30 border border-yellow-400/50" />
-                <span className="font-mono text-[9px] text-[#404040]">
-                  MODERATE
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 bg-green-500/25 border border-green-500/40" />
-                <span className="font-mono text-[9px] text-[#404040]">
-                  SECURE
-                </span>
-              </div>
-            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 battle-log">
             <div className="font-mono text-xs leading-relaxed text-[#888]">
-              {DOCUMENT_SEGMENTS.map((seg, i) => {
-                if (seg.heat === 'neutral')
-                return (
-                  <span key={i} className="text-[#555] font-bold">
+              {heatmapSegments.length > 0 ?
+              heatmapSegments.map((seg, i) => {
+                if (seg.heat === 'neutral') {
+                  return (
+                    <span key={i} className="text-[#555] font-bold">
                       {seg.text}
-                    </span>);
+                    </span>
+                  );
+                }
 
                 return (
                   <span
                     key={i}
-                    className={`cursor-pointer transition-all ${seg.heat === 'red' ? 'heatmap-red text-red-200' : seg.heat === 'yellow' ? 'heatmap-yellow text-yellow-200' : 'heatmap-green text-green-200'}`}
-                    onClick={() =>
-                    setActiveHeat(activeHeat === String(i) ? null : String(i))
-                    }>
-
+                    className={`cursor-pointer transition-all ${
+                      seg.heat === 'red'
+                        ? 'heatmap-red text-red-200'
+                        : seg.heat === 'yellow'
+                        ? 'heatmap-yellow text-yellow-200'
+                        : 'heatmap-green text-green-200'
+                    }`}
+                    onClick={() => setActiveHeat(activeHeat === String(i) ? null : String(i))}
+                  >
                     {seg.text}
-                    {activeHeat === String(i) && seg.note &&
-                    <span className="block mt-1 mb-1 px-2 py-1 bg-[#0f0f0f] border border-[#262626] text-[9px] font-mono text-[#888] not-italic">
+                    {activeHeat === String(i) && seg.note && (
+                      <span className="block mt-1 mb-1 px-2 py-1 bg-[#0f0f0f] border border-[#262626] text-[9px] font-mono text-[#888]">
                         ⚑ {seg.note}
                       </span>
-                    }
-                  </span>);
-
-              })}
+                    )}
+                  </span>
+                );
+              }) :
+              document?.raw_text || 'Extracting document text...'
+              }
             </div>
           </div>
         </div>
 
         {/* RIGHT PANE */}
         <div className="w-1/2 flex flex-col">
-          {/* Dual Waveform Player */}
+          {/* Hidden real audio element */}
+          {currentAudioDebate?.cloudinary_audio_url &&
+          <audio
+            ref={audioRef}
+            src={currentAudioDebate.cloudinary_audio_url}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onEnded={handleAudioEnded}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => {
+              setIsPlaying(false);
+              setActiveSpeaker(null);
+            }} />
+          }
+
+          {/* Audio Analysis */}
           <div className="border-b border-[#262626] p-4 flex-shrink-0">
             <div className="flex items-center justify-between mb-3">
               <span className="font-mono text-[10px] text-[#666] tracking-widest">
                 AUDIO ANALYSIS
               </span>
               <button
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="flex items-center gap-2 px-3 py-1.5 border border-[#262626] text-[#666] hover:text-white hover:border-[#404040] transition-colors font-mono text-[10px]">
+                onClick={togglePlay}
+                disabled={!currentAudioDebate?.cloudinary_audio_url}
+                className="flex items-center gap-2 px-3 py-1.5 border border-[#262626] text-[#666] hover:text-white hover:border-[#404040] transition-colors font-mono text-[10px] disabled:opacity-30 disabled:cursor-not-allowed">
 
-                {isPlaying ?
-                <PauseIcon className="w-3 h-3" /> :
-
-                <PlayIcon className="w-3 h-3" />
-                }
+                {isPlaying ? <PauseIcon className="w-3 h-3" /> : <PlayIcon className="w-3 h-3" />}
                 {isPlaying ? 'PAUSE' : 'PLAY'}
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <SwordIcon className="w-3 h-3 text-[#EF4444]" />
-                  <span className="font-mono text-[9px] text-[#EF4444] tracking-widest">
-                    AUDITOR CHANNEL
-                  </span>
-                </div>
-                <div className="flex items-end gap-0.5 h-12 bg-[#0a0a0a] border border-[#262626] px-2 py-1">
-                  {Array.from({
-                    length: 40
-                  }).map((_, i) =>
-                  <WaveformBar key={i} color="#EF4444" delay={i * 30} />
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <ShieldIcon className="w-3 h-3 text-[#3B82F6]" />
-                  <span className="font-mono text-[9px] text-[#3B82F6] tracking-widest">
-                    OPTIMIST CHANNEL
-                  </span>
-                </div>
-                <div className="flex items-end gap-0.5 h-12 bg-[#0a0a0a] border border-[#262626] px-2 py-1">
-                  {Array.from({
-                    length: 40
-                  }).map((_, i) =>
-                  <WaveformBar key={i} color="#3B82F6" delay={i * 25} />
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 w-full h-1 bg-[#1a1a1a] relative">
-              <div
-                className="h-full bg-[#404040]"
-                style={{
-                  width: '35%'
-                }} />
 
-              <div
-                className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white border border-[#262626]"
-                style={{
-                  left: '35%'
-                }} />
+            {currentAudioDebate?.cloudinary_audio_url ?
+            <>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className={`transition-opacity duration-300 ${isPlaying && activeSpeaker !== 'SYSTEM' ? 'opacity-20' : ''}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <TerminalIcon className="w-3 h-3 text-[#666]" />
+                      <span className={`font-mono text-[9px] tracking-widest transition-colors ${activeSpeaker === 'SYSTEM' ? 'text-white' : 'text-[#333]'}`}>
+                        SYSTEM
+                      </span>
+                    </div>
+                    <div className="flex items-end gap-0.5 h-12 bg-[#0a0a0a] border border-[#262626] px-2 py-1">
+                      {Array.from({ length: 25 }).map((_, i) =>
+                    <WaveformBar key={i} color="#666" delay={i * 35} isActive={isPlaying && activeSpeaker === 'SYSTEM'} />
+                    )}
+                    </div>
+                  </div>
 
-            </div>
-            <div className="flex justify-between mt-1">
-              <span className="font-mono text-[9px] text-[#404040]">
-                00:01:45
-              </span>
-              <span className="font-mono text-[9px] text-[#404040]">
-                00:05:00
-              </span>
-            </div>
+                  <div className={`transition-opacity duration-300 ${isPlaying && activeSpeaker !== 'AUDITOR' ? 'opacity-20' : ''}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <SwordIcon className="w-3 h-3 text-[#EF4444]" />
+                      <span className={`font-mono text-[9px] tracking-widest transition-colors ${activeSpeaker === 'AUDITOR' ? 'text-[#EF4444]' : 'text-[#333]'}`}>
+                        AUDITOR
+                      </span>
+                    </div>
+                    <div className="flex items-end gap-0.5 h-12 bg-[#0a0a0a] border border-[#262626] px-2 py-1">
+                      {Array.from({ length: 25 }).map((_, i) =>
+                    <WaveformBar key={i} color="#EF4444" delay={i * 30} isActive={isPlaying && activeSpeaker === 'AUDITOR'} />
+                    )}
+                    </div>
+                  </div>
+
+                  <div className={`transition-opacity duration-300 ${isPlaying && activeSpeaker !== 'OPTIMIST' ? 'opacity-20' : ''}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <ShieldIcon className="w-3 h-3 text-[#3B82F6]" />
+                      <span className={`font-mono text-[9px] tracking-widest transition-colors ${activeSpeaker === 'OPTIMIST' ? 'text-[#3B82F6]' : 'text-[#333]'}`}>
+                        OPTIMIST
+                      </span>
+                    </div>
+                    <div className="flex items-end gap-0.5 h-12 bg-[#0a0a0a] border border-[#262626] px-2 py-1">
+                      {Array.from({ length: 25 }).map((_, i) =>
+                    <WaveformBar key={i} color="#3B82F6" delay={i * 25} isActive={isPlaying && activeSpeaker === 'OPTIMIST'} />
+                    )}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                className="mt-3 w-full h-1 bg-[#1a1a1a] relative cursor-pointer"
+                onClick={handleSeek}>
+
+                  <div className="h-full bg-[#404040]" style={{ width: `${audioProgress}%` }} />
+                  <div
+                  className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white border border-[#262626]"
+                  style={{ left: `${audioProgress}%` }} />
+
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="font-mono text-[9px] text-[#404040]">{currentTime}</span>
+                  <span className="font-mono text-[9px] text-[#404040]">{audioDuration}</span>
+                </div>
+              </>
+            :
+            <div className="text-center py-4">
+                <span className="font-mono text-[10px] text-[#404040]">
+                  GENERATING AUDIO DEBATE...
+                </span>
+                <div className="scanning-bar mt-2" />
+              </div>
+            }
           </div>
 
           {/* Battle Log */}
@@ -984,70 +1109,144 @@ export function AuditLab() {
             </div>
             <div
               ref={battleLogRef}
-              className="flex-1 overflow-y-auto p-4 space-y-3 battle-log">
+              className="flex-1 overflow-y-auto p-4 space-y-1 battle-log"
+              style={{ overflowY: isPlaying ? 'hidden' : 'auto' }}>
 
-              {BATTLE_LOG.map((entry, i) =>
-              <div key={i} className="flex gap-3">
+              {activeEntryIndex < 0 && !isPlaying &&
+              <div className="flex items-center justify-center h-full">
+                  <span className="font-mono text-[10px] text-[#333] tracking-widest animate-pulse">
+                    PRESS PLAY TO BEGIN LIVE TRANSCRIPT
+                  </span>
+                </div>
+              }
+
+              {transcript.map((entry, i) => {
+                if (i > activeEntryIndex) return null;
+                const isCurrent = i === activeEntryIndex && isPlaying;
+                const isPast = i < activeEntryIndex;
+
+                return (
+              <div
+                key={i}
+                data-entry-index={i}
+                className={`flex gap-3 px-2 py-2 transition-all duration-500 ${
+                isCurrent ?
+                'bg-[#111] border-l-2 border-l-current' :
+                isPast && isPlaying ?
+                'opacity-40' :
+                ''
+                }`}
+                style={{
+                  borderLeftColor: isCurrent ?
+                  entry.role === 'AUDITOR' ? '#EF4444' :
+                  entry.role === 'OPTIMIST' ? '#3B82F6' :
+                  '#666' :
+                  'transparent'
+                }}>
                   <span className="font-mono text-[9px] text-[#333] mt-0.5 flex-shrink-0 w-14">
                     {entry.time}
                   </span>
                   <div className="flex-1">
                     <span
-                    className={`font-mono text-[9px] font-bold tracking-widest ${entry.role === 'AUDITOR' ? 'text-[#EF4444]' : entry.role === 'OPTIMIST' ? 'text-[#3B82F6]' : entry.role === 'USER' ? 'text-yellow-400' : 'text-[#555]'}`}>
+                    className={`font-mono text-[9px] font-bold tracking-widest ${entry.role === 'AUDITOR' ? 'text-[#EF4444]' : entry.role === 'OPTIMIST' ? 'text-[#3B82F6]' : 'text-[#555]'}`}>
 
                       [{entry.role}]
                     </span>
-                    <p className="font-mono text-[10px] text-[#777] mt-0.5 leading-relaxed">
+                    <p className={`font-mono text-[10px] mt-0.5 leading-relaxed transition-colors duration-500 ${isCurrent ? 'text-[#e5e5e5]' : 'text-[#555]'}`}>
                       {entry.text}
                     </p>
                   </div>
                 </div>
-              )}
+              );
+              })}
+
+              {transcript.length === 0 &&
+              <span className="font-mono text-[10px] text-[#555] tracking-widest">
+                  WAITING FOR DEBATE TRANSCRIPT...
+                </span>
+              }
             </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom: Rebuttal Console */}
-      <div className="border-t border-[#262626] bg-[#080808] flex-shrink-0">
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-[#1a1a1a]">
-          <AlertTriangleIcon className="w-3 h-3 text-[#EF4444]" />
-          <span className="font-mono text-[10px] text-[#666] tracking-widest">
-            REBUTTAL CONSOLE
-          </span>
-          <span className="font-mono text-[9px] text-[#333] ml-2">
-            — ARM THE OPTIMIST FOR NEXT ROUND
-          </span>
-        </div>
-        <div className="flex gap-0">
-          <textarea
-            value={rebuttal}
-            onChange={(e) => setRebuttal(e.target.value)}
-            placeholder="Enter your defense argument to arm the Optimist AI for the next round..."
-            className="flex-1 bg-transparent border-0 px-4 py-3 font-mono text-xs text-white placeholder-[#333] resize-none focus:outline-none min-h-[80px]"
-            rows={3} />
+      {/* REBUTTAL CONSOLE — DISABLED FOR NOW */}
+      {showReAudit && (
+        <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#050505] border border-[#3B82F6]/30 w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#262626]">
+              <div className="flex items-center gap-2">
+                <RefreshCwIcon className="w-3.5 h-3.5 text-[#3B82F6]" />
+                <span className="font-mono text-xs font-bold text-[#3B82F6] tracking-widest">
+                  RE-AUDIT ROUND {totalRounds + 1}/{maxRounds}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  if (reAuditing) return;
+                  setShowReAudit(false);
+                  setReAuditFile(null);
+                }}
+                className="text-[#404040] hover:text-white transition-colors"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
 
-          <div className="flex flex-col border-l border-[#262626]">
-            <button
-              className="flex-1 px-4 flex flex-col items-center justify-center gap-1 text-[#EF4444] hover:bg-[#EF4444] hover:text-white transition-colors border-b border-[#262626]"
-              onClick={() => setRebuttal('')}>
+            <div className="px-5 py-5 space-y-4">
+              <p className="font-mono text-[10px] text-[#777] leading-relaxed">
+                Upload a revised document for the next round. Previous rounds remain preserved and selectable.
+              </p>
 
-              <SendIcon className="w-4 h-4" />
-              <span className="font-mono text-[9px] tracking-widest">
-                DEPLOY
-              </span>
-            </button>
-            <button
-              className="px-4 py-2 text-[#333] hover:text-[#666] transition-colors"
-              onClick={() => setRebuttal('')}>
+              <input
+                ref={reAuditFileRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                className="hidden"
+                onChange={(e) => setReAuditFile(e.target.files?.[0] || null)}
+              />
 
-              <span className="font-mono text-[9px] tracking-widest">
-                CLEAR
-              </span>
-            </button>
+              <button
+                onClick={() => reAuditFileRef.current?.click()}
+                className="w-full border border-[#262626] px-3 py-2.5 text-left hover:border-[#404040] transition-colors"
+              >
+                <span className="block font-mono text-[9px] text-[#404040] tracking-widest mb-1">REPLACEMENT FILE</span>
+                <span className="block font-mono text-[10px] text-white truncate">
+                  {reAuditFile?.name || 'SELECT FILE (.PDF, .DOC, .DOCX, .TXT)'}
+                </span>
+              </button>
+
+              <div className="font-mono text-[9px] text-[#404040] tracking-widest">
+                CURRENT USAGE: {totalRounds}/{maxRounds}
+              </div>
+            </div>
+
+            <div className="px-5 pb-5 flex gap-2">
+              <button
+                onClick={handleReAudit}
+                disabled={!reAuditFile || reAuditing}
+                className={`flex-1 py-2.5 font-mono text-xs font-bold tracking-widest transition-colors ${
+                  !reAuditFile || reAuditing
+                    ? 'bg-[#333] text-[#666] cursor-not-allowed'
+                    : 'bg-[#3B82F6] text-white hover:bg-[#2563EB]'
+                }`}
+              >
+                {reAuditing ? 'RE-AUDITING...' : 'START RE-AUDIT'}
+              </button>
+              <button
+                onClick={() => {
+                  if (reAuditing) return;
+                  setShowReAudit(false);
+                  setReAuditFile(null);
+                }}
+                className="flex-1 py-2.5 border border-[#262626] text-[#666] font-mono text-xs font-bold tracking-widest hover:border-[#404040] hover:text-white transition-colors"
+              >
+                CANCEL
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>);
 
 }

@@ -4,6 +4,7 @@ import {
   ActivityIcon,
   UsersIcon,
   FileTextIcon,
+  AudioLinesIcon,
   PackageIcon,
   CreditCardIcon,
   KeyIcon,
@@ -35,6 +36,11 @@ const adminNavItems = [
   path: '/admin/documents',
   label: 'DOCUMENTS',
   icon: FileTextIcon
+},
+{
+  path: '/admin/audio-debates',
+  label: 'AUDIO DEBATES',
+  icon: AudioLinesIcon
 },
 {
   path: '/admin/packages',
@@ -136,47 +142,63 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
         {/* Logo + Admin Badge */}
         <div
-          className={`flex items-center border-b border-[#262626] flex-shrink-0 ${collapsed ? 'justify-center px-0 py-5' : 'px-4 py-5'}`}>
+          className={`flex items-center border-b border-[#262626] flex-shrink-0 ${
+            collapsed ? 'flex-col gap-1 px-0 py-3' : 'px-4 py-5'
+          }`}>
 
-          {!collapsed &&
-          <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <ShieldAlertIcon className="w-4 h-4 text-[#EF4444] flex-shrink-0" />
-                <span className="font-mono text-sm font-bold text-white tracking-widest">
-                  ARES AI
-                </span>
-              </div>
-              <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#EF4444]/10 border border-[#EF4444]/30">
-                <span className="font-mono text-[9px] font-bold text-[#EF4444] tracking-widest">
-                  ADMIN
-                </span>
-              </div>
-              <p className="font-mono text-[9px] text-[#404040] mt-1 tracking-widest">
-                OVERSEER MODE
-              </p>
+          {collapsed ? (
+            <div className="flex flex-col items-center gap-1">
+              <button
+                onClick={() => setCollapsed(false)}
+                className="flex items-center justify-center w-8 h-8 text-[#EF4444] hover:bg-[#0a0a0a] transition-colors"
+                title="Expand sidebar"
+              >
+                <ShieldAlertIcon className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCollapsed(false)}
+                className="flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white hover:border-[#404040] transition-colors"
+                title="Expand sidebar"
+              >
+                <ChevronRightIcon className="w-3 h-3" />
+              </button>
             </div>
-          }
-          {collapsed && <ShieldAlertIcon className="w-4 h-4 text-[#EF4444]" />}
-
-          {/* Desktop collapse toggle */}
-          <button
-            onClick={() => setCollapsed((c) => !c)}
-            className={`hidden lg:flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white hover:border-[#404040] transition-colors flex-shrink-0 ${collapsed ? '' : 'ml-2'}`}>
-
-            {collapsed ?
-            <ChevronRightIcon className="w-3 h-3" /> :
-
-            <ChevronLeftIcon className="w-3 h-3" />
-            }
-          </button>
+          ) : (
+            <>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <ShieldAlertIcon className="w-4 h-4 text-[#EF4444] flex-shrink-0" />
+                  <span className="font-mono text-sm font-bold text-white tracking-widest">
+                    ARES AI
+                  </span>
+                </div>
+                <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#EF4444]/10 border border-[#EF4444]/30">
+                  <span className="font-mono text-[9px] font-bold text-[#EF4444] tracking-widest">
+                    ADMIN
+                  </span>
+                </div>
+                <p className="font-mono text-[9px] text-[#404040] mt-1 tracking-widest">
+                  OVERSEER MODE
+                </p>
+              </div>
+              <button
+                onClick={() => setCollapsed(true)}
+                className="hidden lg:flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white hover:border-[#404040] transition-colors flex-shrink-0 ml-2"
+              >
+                <ChevronLeftIcon className="w-3 h-3" />
+              </button>
+            </>
+          )}
 
           {/* Mobile close */}
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="lg:hidden flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white transition-colors ml-2 flex-shrink-0">
-
-            <XIcon className="w-3 h-3" />
-          </button>
+          {!collapsed && (
+            <button
+              onClick={() => setMobileOpen(false)}
+              className="lg:hidden flex items-center justify-center w-6 h-6 border border-[#262626] text-[#404040] hover:text-white transition-colors ml-2 flex-shrink-0"
+            >
+              <XIcon className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         {/* Admin Nav */}

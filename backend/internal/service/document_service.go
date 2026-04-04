@@ -40,6 +40,19 @@ func (s *DocumentService) CreateDocumentWithUpload(userID uint, fileName string,
 	return s.CreateDocument(userID, fileName, cloudinaryURL)
 }
 
+func (s *DocumentService) UploadDocumentFile(file *multipart.FileHeader) (string, error) {
+	if s.cloudinaryService == nil {
+		return "", fmt.Errorf("Cloudinary service not initialized")
+	}
+
+	cloudinaryURL, err := s.cloudinaryService.UploadFile(file, "documents")
+	if err != nil {
+		return "", fmt.Errorf("upload to cloudinary: %w", err)
+	}
+
+	return cloudinaryURL, nil
+}
+
 // CreateDocument creates a new document
 func (s *DocumentService) CreateDocument(userID uint, fileName, cloudinaryURL string) (*models.Document, error) {
 	doc := &models.Document{
@@ -84,6 +97,15 @@ func (s *DocumentService) GetAllDocuments() ([]models.Document, error) {
 	return docs, nil
 }
 
+func (s *DocumentService) GetAllAudioDebates() ([]models.AudioDebate, error) {
+	debates, err := s.repo.GetAllAudioDebates()
+	if err != nil {
+		return nil, fmt.Errorf("get all audio debates: %w", err)
+	}
+
+	return debates, nil
+}
+
 // UpdateDocument updates a document
 func (s *DocumentService) UpdateDocument(id uint, fileName *string, status *string) (*models.Document, error) {
 	updates := map[string]interface{}{}
@@ -97,6 +119,15 @@ func (s *DocumentService) UpdateDocument(id uint, fileName *string, status *stri
 	doc, err := s.repo.Update(id, updates)
 	if err != nil {
 		return nil, fmt.Errorf("update document: %w", err)
+	}
+
+	return doc, nil
+}
+
+func (s *DocumentService) UpdateDocumentWithFields(id uint, updates map[string]interface{}) (*models.Document, error) {
+	doc, err := s.repo.Update(id, updates)
+	if err != nil {
+		return nil, fmt.Errorf("update document fields: %w", err)
 	}
 
 	return doc, nil

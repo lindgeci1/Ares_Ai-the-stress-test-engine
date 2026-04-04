@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { authService } from '../services/authService';
 import {
   UploadIcon,
   FileTextIcon,
@@ -11,9 +13,14 @@ import {
 export function NewAudit() {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
-  const [rounds, setRounds] = useState(3);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const { user, refreshUser } = useAuth();
+  const auditsPerformed = user?.user_usage?.audits_performed ?? 0;
+  const auditLimit = user?.user_usage?.audit_limit ?? 10;
+  const remaining = Math.max(0, auditLimit - auditsPerformed);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -29,13 +36,32 @@ export function NewAudit() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) setFile(e.target.files[0]);
   };
-  const handleLaunch = () => {
-    if (!file) return;
-    navigate('/audit/demo-001', {
-      state: {
-        isNewAudit: true
+
+  const handleLaunch = async () => {
+    if (!file || !user || uploading) return;
+
+    setUploading(true);
+    setError(null);
+
+    try {
+      const doc = await authService.createDocument(user.id, file);
+      try {
+        await refreshUser();
+      } catch (refreshErr) {
+        console.error('Failed to refresh user quota after upload:', refreshErr);
       }
-    });
+
+      navigate(`/audit/${doc.id}`, {
+        state: {
+          isNewAudit: true,
+        },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      setError(message);
+    } finally {
+      setUploading(false);
+    }
   };
   return (
     <div className="p-6 min-h-full">
@@ -109,64 +135,60 @@ export function NewAudit() {
           }
         </div>
 
-        {/* Config */}
-        <div className="border border-[#262626] bg-[#0a0a0a] p-5 mb-6">
-          <h2 className="font-mono text-[10px] text-[#666] tracking-widest mb-4">
-            AUDIT CONFIGURATION
-          </h2>
-
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <label className="block font-mono text-[9px] text-[#404040] tracking-widest mb-2">
-                BATTLE ROUNDS
-              </label>
-              <div className="flex gap-0">
-                {[3, 5, 7, 10].map((n) =>
-                <button
-                  key={n}
-                  onClick={() => setRounds(n)}
-                  className={`flex-1 py-2 font-mono text-xs font-bold border transition-colors ${rounds === n ? 'bg-[#EF4444] border-[#EF4444] text-white' : 'bg-[#050505] border-[#262626] text-[#404040] hover:border-[#404040] hover:text-white'}`}>
-
-                    {n}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-mono text-[9px] text-[#404040] tracking-widest mb-2">
-                AUDIT MODE
-              </label>
-              <div className="flex gap-0">
-                {['STANDARD', 'DEEP'].map((mode) =>
-                <button
-                  key={mode}
-                  className="flex-1 py-2 font-mono text-[10px] font-bold border border-[#262626] bg-[#050505] text-[#404040] hover:border-[#404040] hover:text-white transition-colors first:border-r-0">
-
-                    {mode}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Warning */}
-        <div className="flex items-start gap-3 border border-[#EAB308]/20 bg-[#EAB308]/5 p-4 mb-6">
-          <AlertTriangleIcon className="w-3.5 h-3.5 text-[#EAB308] flex-shrink-0 mt-0.5" />
-          <p className="font-mono text-[10px] text-[#EAB308] leading-relaxed">
-            THIS AUDIT WILL CONSUME{' '}
-            <span className="font-bold">1 OF YOUR 6 REMAINING QUOTA SLOTS</span>{' '}
-            THIS CYCLE. DEEP MODE CONSUMES 2 SLOTS.
+        <div
+          className={`flex items-start gap-3 border p-4 mb-6 ${
+            remaining > 0
+              ? 'border-[#EAB308]/20 bg-[#EAB308]/5'
+              : 'border-[#EF4444]/20 bg-[#EF4444]/5'
+          }`}>
+          <AlertTriangleIcon
+            className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${
+              remaining > 0 ? 'text-[#EAB308]' : 'text-[#EF4444]'
+            }`}
+          />
+          <p
+            className={`font-mono text-[10px] leading-relaxed ${
+              remaining > 0 ? 'text-[#EAB308]' : 'text-[#EF4444]'
+            }`}>
+            {remaining > 0 ? (
+              <>
+                THIS AUDIT WILL CONSUME{' '}
+                <span className="font-bold">1 OF YOUR {remaining} REMAINING QUOTA SLOTS</span>{' '}
+                THIS CYCLE.
+              </>
+            ) : (
+              <>
+                <span className="font-bold">QUOTA EXHAUSTED</span> — YOU HAVE USED ALL {auditLimit} SLOTS THIS CYCLE.{' '}
+                UPGRADE YOUR PLAN TO CONTINUE.
+              </>
+            )}
           </p>
         </div>
 
         {/* Launch */}
+        {error && (
+          <div className="mb-4 border border-[#EF4444]/40 bg-[#EF4444]/10 p-3">
+            <p className="font-mono text-[10px] text-[#EF4444] tracking-wider">{error}</p>
+          </div>
+        )}
+
         <button
           onClick={handleLaunch}
-          className={`w-full py-4 font-mono text-sm font-bold tracking-widest transition-colors ${file ? 'bg-[#EF4444] text-white hover:bg-[#dc2626]' : 'bg-[#1a1a1a] text-[#333] cursor-not-allowed'}`}>
+          disabled={!file || remaining <= 0}
+          className={`w-full py-4 font-mono text-sm font-bold tracking-widest transition-colors ${
+            file && remaining > 0
+              ? 'bg-[#EF4444] text-white hover:bg-[#dc2626]'
+              : 'bg-[#1a1a1a] text-[#333] cursor-not-allowed'
+          }`}>
 
-          {file ? 'LAUNCH STRESS-TEST' : 'SELECT A DOCUMENT TO CONTINUE'}
+          {remaining <= 0
+            ? 'QUOTA EXHAUSTED — UPGRADE TO CONTINUE'
+            : uploading
+            ? 'UPLOADING DOCUMENT...'
+            : file
+            ? 'LAUNCH STRESS-TEST'
+            : 'SELECT A DOCUMENT TO CONTINUE'}
         </button>
       </div>
     </div>);

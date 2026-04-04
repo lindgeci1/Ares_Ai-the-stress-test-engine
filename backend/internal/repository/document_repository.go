@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"ares-ai-backend/internal/models"
+
 	"gorm.io/gorm"
 )
 
@@ -28,7 +29,14 @@ func (r *DocumentRepository) Create(document *models.Document) (*models.Document
 // GetByID retrieves a document by ID with user preloaded
 func (r *DocumentRepository) GetByID(id uint) (*models.Document, error) {
 	var doc models.Document
-	if err := r.db.Preload("AuditReport").Preload("AudioDebate").First(&doc, id).Error; err != nil {
+	if err := r.db.
+		Preload("AuditReports", func(db *gorm.DB) *gorm.DB {
+			return db.Order("round_number ASC")
+		}).
+		Preload("AudioDebates", func(db *gorm.DB) *gorm.DB {
+			return db.Order("round_number ASC")
+		}).
+		First(&doc, id).Error; err != nil {
 		return nil, fmt.Errorf("get document: %w", err)
 	}
 	return &doc, nil
@@ -37,7 +45,15 @@ func (r *DocumentRepository) GetByID(id uint) (*models.Document, error) {
 // GetByUserID retrieves all documents for a specific user
 func (r *DocumentRepository) GetByUserID(userID uint) ([]models.Document, error) {
 	var docs []models.Document
-	if err := r.db.Preload("AuditReport").Preload("AudioDebate").Where("user_id = ?", userID).Find(&docs).Error; err != nil {
+	if err := r.db.
+		Preload("AuditReports", func(db *gorm.DB) *gorm.DB {
+			return db.Order("round_number ASC")
+		}).
+		Preload("AudioDebates", func(db *gorm.DB) *gorm.DB {
+			return db.Order("round_number ASC")
+		}).
+		Where("user_id = ?", userID).
+		Find(&docs).Error; err != nil {
 		return nil, fmt.Errorf("get user documents: %w", err)
 	}
 	return docs, nil
@@ -46,7 +62,14 @@ func (r *DocumentRepository) GetByUserID(userID uint) ([]models.Document, error)
 // GetAll retrieves all documents (for admin)
 func (r *DocumentRepository) GetAll() ([]models.Document, error) {
 	var docs []models.Document
-	if err := r.db.Preload("AuditReport").Preload("AudioDebate").Find(&docs).Error; err != nil {
+	if err := r.db.
+		Preload("AuditReports", func(db *gorm.DB) *gorm.DB {
+			return db.Order("round_number ASC")
+		}).
+		Preload("AudioDebates", func(db *gorm.DB) *gorm.DB {
+			return db.Order("round_number ASC")
+		}).
+		Find(&docs).Error; err != nil {
 		return nil, fmt.Errorf("get all documents: %w", err)
 	}
 	return docs, nil
@@ -71,4 +94,52 @@ func (r *DocumentRepository) Delete(id uint) error {
 		return fmt.Errorf("delete document: %w", err)
 	}
 	return nil
+}
+
+// CreateAudioDebate inserts a new audio debate linked to a document
+func (r *DocumentRepository) CreateAudioDebate(debate *models.AudioDebate) error {
+	if err := r.db.Create(debate).Error; err != nil {
+		return fmt.Errorf("create audio debate: %w", err)
+	}
+
+	return nil
+}
+
+func (r *DocumentRepository) CreateAuditReport(report *models.AuditReport) error {
+	if err := r.db.Create(report).Error; err != nil {
+		return fmt.Errorf("create audit report: %w", err)
+	}
+
+	return nil
+}
+
+func (r *DocumentRepository) IncrementAuditsPerformed(userID uint) error {
+	result := r.db.Model(&models.UserUsage{}).
+		Where("user_id = ?", userID).
+		UpdateColumn("audits_performed", gorm.Expr("audits_performed + 1"))
+	if result.Error != nil {
+		return fmt.Errorf("increment audits_performed: %w", result.Error)
+	}
+
+	return nil
+}
+
+func (r *DocumentRepository) IncrementRoundsUsed(documentID uint) error {
+	result := r.db.Model(&models.Document{}).
+		Where("id = ?", documentID).
+		UpdateColumn("rounds_used", gorm.Expr("rounds_used + 1"))
+	if result.Error != nil {
+		return fmt.Errorf("increment rounds_used: %w", result.Error)
+	}
+
+	return nil
+}
+
+func (r *DocumentRepository) GetAllAudioDebates() ([]models.AudioDebate, error) {
+	var debates []models.AudioDebate
+	if err := r.db.Order("created_at DESC").Find(&debates).Error; err != nil {
+		return nil, fmt.Errorf("get all audio debates: %w", err)
+	}
+
+	return debates, nil
 }
