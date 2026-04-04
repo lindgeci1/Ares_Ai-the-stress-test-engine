@@ -1,21 +1,26 @@
 package handlers
 
 import (
+	"log"
 	"strconv"
 
+	"ares-ai-backend/internal/repository"
 	"ares-ai-backend/internal/service"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 // DocumentHandler handles HTTP requests for document-related endpoints
 type DocumentHandler struct {
-	service *service.DocumentService
+	service         *service.DocumentService
+	pipelineService *service.AuditPipelineService
+	userRepo        *repository.UserRepository
 }
 
 // NewDocumentHandler creates a new document handler
-func NewDocumentHandler(service *service.DocumentService) *DocumentHandler {
-	return &DocumentHandler{service: service}
+func NewDocumentHandler(service *service.DocumentService, pipelineService *service.AuditPipelineService, userRepo *repository.UserRepository) *DocumentHandler {
+	return &DocumentHandler{service: service, pipelineService: pipelineService, userRepo: userRepo}
 }
 
 // extractJWTClaims extracts user info from JWT claims
@@ -100,6 +105,14 @@ func (h *DocumentHandler) CreateDocument(c *fiber.Ctx) error {
 		})
 	}
 
+	if h.pipelineService != nil {
+		go func(documentID uint) {
+			if pipelineErr := h.pipelineService.ProcessDocument(documentID, 1); pipelineErr != nil {
+				log.Printf("Pipeline error for document %d: %v", documentID, pipelineErr)
+			}
+		}(doc.ID)
+	}
+
 	return c.Status(fiber.StatusCreated).JSON(doc)
 }
 
@@ -120,6 +133,17 @@ func (h *DocumentHandler) GetAllDocuments(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(docs)
+}
+
+func (h *DocumentHandler) GetAllAudioDebates(c *fiber.Ctx) error {
+	debates, err := h.service.GetAllAudioDebates()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(debates)
 }
 
 // GetDocumentByID retrieves a specific document
@@ -354,4 +378,113 @@ func (h *DocumentHandler) DeleteDocument(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Document deleted successfully",
 	})
+}
+
+// ArchiveDocument toggles a document's status between "archived" and "processed"
+func (h *DocumentHandler) ArchiveDocument(c *fiber.Ctx) error {
+	requestingUserID, role, err := extractJWTClaims(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	idParam := c.Params("id")
+	idInt, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid document ID"})
+	}
+	id := uint(idInt)
+
+	doc, err := h.service.GetDocument(id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Document not found"})
+	}
+
+	if role != "Admin" && doc.UserID != requestingUserID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Forbidden"})
+	}
+
+	newStatus := "archived"
+	if doc.Status == "archived" {
+		newStatus = "processed"
+	}
+
+	updated, err := h.service.UpdateDocument(id, nil, &newStatus)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(updated)
+}
+
+// ReAuditDocument handles re-auditing with an updated document
+// PUT /api/v1/documents/:id/reaudit
+func (h *DocumentHandler) ReAuditDocument(c *fiber.Ctx) error {
+	requestingUserID, role, err := extractJWTClaims(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	idParam := c.Params("id")
+	idInt, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid document ID"})
+	}
+	docID := uint(idInt)
+
+	doc, err := h.service.GetDocument(docID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Document not found"})
+	}
+
+	if role != "Admin" && doc.UserID != requestingUserID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Forbidden"})
+	}
+
+	if h.userRepo == nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "User repository not configured"})
+	}
+
+	usage, err := h.userRepo.GetUserUsage(doc.UserID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to load user usage"})
+	}
+
+	if doc.RoundsUsed >= usage.RoundsPerAudit {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Maximum rounds reached for this document. Upgrade your plan."})
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "File is required"})
+	}
+
+	cloudinaryURL, err := h.service.UploadDocumentFile(file)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	newRound := doc.RoundsUsed + 1
+
+	updates := map[string]interface{}{
+		"cloudinary_url": cloudinaryURL,
+		"file_name":      file.Filename,
+		"raw_text":       nil,
+		"status":         "pending",
+		"rounds_used":    newRound,
+	}
+
+	updatedDoc, err := h.service.UpdateDocumentWithFields(docID, updates)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if h.pipelineService != nil {
+		go func(documentID uint, round int) {
+			if pipelineErr := h.pipelineService.ProcessDocument(documentID, round); pipelineErr != nil {
+				log.Printf("Re-audit pipeline error for document %d round %d: %v", documentID, round, pipelineErr)
+			}
+		}(updatedDoc.ID, newRound)
+	}
+
+	return c.JSON(updatedDoc)
 }

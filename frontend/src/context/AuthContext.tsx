@@ -1,6 +1,9 @@
 import { useState, createContext, useContext, useEffect, ReactNode } from 'react';
 import { User, authService } from '../services/authService';
 
+const noop = () => undefined;
+const noopAsync = async () => undefined;
+
 type AuthContextType = {
   user: User | null;
   isAuthenticated: boolean;
@@ -9,6 +12,7 @@ type AuthContextType = {
   loading: boolean;
   login: (user: User) => void;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   // Legacy methods for backward compatibility
   loginAsUser: () => void;
   loginAsAdmin: () => void;
@@ -20,10 +24,11 @@ const AuthContext = createContext<AuthContextType>({
   roleId: null,
   isAdmin: false,
   loading: true,
-  login: () => {},
-  logout: () => {},
-  loginAsUser: () => {},
-  loginAsAdmin: () => {},
+  login: noop,
+  logout: noop,
+  refreshUser: noopAsync,
+  loginAsUser: noop,
+  loginAsAdmin: noop,
 });
 
 export { AuthContext };
@@ -32,13 +37,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const refreshUser = async () => {
+    const currentUser = await authService.getCurrentUser();
+    setUser(currentUser);
+  };
+
   // Load user from backend on mount using silent refresh
   useEffect(() => {
     const loadUser = async () => {
       try {
         await authService.refreshToken();
-        const currentUser = await authService.getCurrentUser();
-        setUser(currentUser);
+        await refreshUser();
       } catch (error) {
         setUser(null);
       } finally {
@@ -108,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         login,
         logout,
+        refreshUser,
         loginAsUser,
         loginAsAdmin,
       }}
@@ -117,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   return useContext(AuthContext);
 }

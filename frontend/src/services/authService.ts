@@ -16,17 +16,22 @@ export interface Role {
   permissions: Record<string, any>;
 }
 
+export interface UserUsage {
+  user_id: number;
+  audits_performed: number;
+  audit_limit: number;
+  rounds_per_audit: number;
+  last_reset_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface User {
   id: number;  // Backend returns number, not string
   email: string;
   operator_name: string;
   subscription_tier: string;
-  user_usage?: {
-    audits_performed: number;
-    audit_limit: number;
-    rounds_per_audit: number;
-    last_reset_at: string;
-  };
+  user_usage?: UserUsage;
   status: string;
   roles: Role[];
   created_at: string;
@@ -108,6 +113,73 @@ export interface Session {
   expires_at: string;
 }
 
+export interface HeatmapSegment {
+  text: string;
+  heat: 'red' | 'yellow' | 'green' | 'neutral';
+  note?: string;
+}
+
+export interface Vulnerability {
+  id: string;
+  severity: string;
+  section: string;
+  title: string;
+  detail: string;
+  precedent?: string;
+}
+
+export interface LogicalFallacy {
+  id: string;
+  type: string;
+  sections: string;
+  title: string;
+  detail: string;
+}
+
+export interface FortificationStep {
+  step: string;
+  priority: string;
+  title: string;
+  fixes: string[];
+  action: string;
+  effort: string;
+  impact: string;
+}
+
+export interface AuditReport {
+  id: number;
+  document_id: number;
+  round_number: number;
+  resilience_score: number | null;
+  heatmap_data: { segments: HeatmapSegment[] } | HeatmapSegment[] | any;
+  vulnerabilities: Vulnerability[] | any;
+  logical_fallacies: LogicalFallacy[] | any;
+  fortification_plan: { steps: FortificationStep[] } | FortificationStep[] | any;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminStats {
+  total_documents: number;
+  active_users: number;
+  total_users: number;
+  total_audit_reports: number;
+  total_audio_debates: number;
+  avg_resilience: number;
+  processed_docs: number;
+  pending_docs: number;
+  failed_docs: number;
+  total_payments: number;
+  total_revenue: number;
+  recent_activity: {
+    document_id: number;
+    file_name: string;
+    status: string;
+    user_email: string;
+    created_at: string;
+  }[];
+}
+
 export interface Document {
   id: number;
   user_id: number;
@@ -115,8 +187,22 @@ export interface Document {
   cloudinary_url: string;
   raw_text?: string;
   status: string;
-  audit_report?: any;
-  audio_debate?: any;
+  rounds_used: number;
+  audit_reports?: AuditReport[];
+  audio_debates?: AudioDebate[];
+  // Compatibility for existing untouched pages.
+  audit_report?: AuditReport;
+  audio_debate?: AudioDebate;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AudioDebate {
+  id: number;
+  document_id: number;
+  round_number: number;
+  cloudinary_audio_url: string;
+  transcript_json: any;
   created_at: string;
   updated_at: string;
 }
@@ -307,6 +393,24 @@ export const authService = {
     }
   },
 
+  async getAdminStats(): Promise<AdminStats> {
+    try {
+      const response = await axiosInstance.get<AdminStats>('/admin/stats');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch admin stats');
+    }
+  },
+
+  async getAllAudioDebatesAdmin(): Promise<AudioDebate[]> {
+    try {
+      const response = await axiosInstance.get<AudioDebate[]>('/admin/audio-debates');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch audio debates');
+    }
+  },
+
   // Get document by ID
   async getDocumentById(docId: number): Promise<Document> {
     try {
@@ -352,6 +456,32 @@ export const authService = {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Failed to update document');
+    }
+  },
+
+  async archiveDocument(docId: number): Promise<Document> {
+    try {
+      const response = await axiosInstance.put<Document>(`/documents/${docId}/archive`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to archive document');
+    }
+  },
+
+  async reAuditDocument(docId: number, file: File): Promise<Document> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await axiosInstance.put<Document>(`/documents/${docId}/reaudit`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to re-audit document');
     }
   },
 

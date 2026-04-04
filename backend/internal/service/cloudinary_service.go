@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"mime/multipart"
@@ -68,6 +69,28 @@ func (cs *CloudinaryService) DeleteFile(publicID string) error {
 	}
 
 	return nil
+}
+
+func (cs *CloudinaryService) UploadBytes(data []byte, folder string, fileName string) (string, error) {
+	if cs.client == nil {
+		return "", fmt.Errorf("Cloudinary client not initialized")
+	}
+
+	if len(data) == 0 {
+		return "", fmt.Errorf("no data provided for upload")
+	}
+
+	ctx := context.Background()
+	result, err := cs.client.Upload.Upload(ctx, bytes.NewReader(data), uploader.UploadParams{
+		Folder:       folder,
+		PublicID:     fileName,
+		ResourceType: "auto",
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to upload bytes to Cloudinary: %w", err)
+	}
+
+	return result.SecureURL, nil
 }
 
 // ExtractPublicIDFromURL extracts the public ID from a Cloudinary URL

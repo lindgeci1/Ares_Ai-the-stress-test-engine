@@ -1,160 +1,97 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   PlusIcon,
   FileTextIcon,
   ClockIcon,
-  ArchiveIcon,
   ActivityIcon,
   UploadIcon,
-  RefreshCwIcon } from
+  RefreshCwIcon,
+  ArchiveIcon,
+  TrashIcon,
+  AlertTriangleIcon,
+  XIcon } from
 'lucide-react';
-type AuditStatus = 'ACTIVE' | 'ARCHIVED' | 'PROCESSING';
-type AuditCard = {
-  id: string;
-  name: string;
-  status: AuditStatus;
-  survivalScore: number;
-  rounds: number;
-  threats: number;
-  date: string;
-  size: string;
-};
-const AUDIT_CARDS: AuditCard[] = [
-{
-  id: 'audit-001',
-  name: 'Terms_of_Service_v4.2.pdf',
-  status: 'ACTIVE',
-  survivalScore: 58,
-  rounds: 3,
-  threats: 12,
-  date: '2025-01-28',
-  size: '2.4 MB'
-},
-{
-  id: 'audit-002',
-  name: 'Privacy_Policy_2025.docx',
-  status: 'ACTIVE',
-  survivalScore: 74,
-  rounds: 5,
-  threats: 7,
-  date: '2025-01-27',
-  size: '1.1 MB'
-},
-{
-  id: 'audit-003',
-  name: 'Employment_Contract_Template.pdf',
-  status: 'PROCESSING',
-  survivalScore: 0,
-  rounds: 0,
-  threats: 0,
-  date: '2025-01-28',
-  size: '890 KB'
-},
-{
-  id: 'audit-004',
-  name: 'NDA_Standard_Form.pdf',
-  status: 'ARCHIVED',
-  survivalScore: 82,
-  rounds: 8,
-  threats: 4,
-  date: '2025-01-20',
-  size: '450 KB'
-},
-{
-  id: 'audit-005',
-  name: 'SaaS_Agreement_Enterprise.pdf',
-  status: 'ARCHIVED',
-  survivalScore: 31,
-  rounds: 6,
-  threats: 19,
-  date: '2025-01-15',
-  size: '3.8 MB'
-},
-{
-  id: 'audit-006',
-  name: 'Data_Processing_Agreement.pdf',
-  status: 'ACTIVE',
-  survivalScore: 67,
-  rounds: 4,
-  threats: 9,
-  date: '2025-01-26',
-  size: '1.7 MB'
-}];
+import { useAuth } from '../context/AuthContext';
+import { authService, type Document } from '../services/authService';
 
-function ScoreBar({ score, status }: {score: number;status: AuditStatus;}) {
-  if (status === 'PROCESSING') {
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <span className="font-mono text-[9px] text-[#666] tracking-widest">
-            SURVIVAL SCORE
-          </span>
-          <span className="font-mono text-[9px] text-yellow-400">
-            COMPUTING...
-          </span>
-        </div>
-        <div className="scanning-bar h-1" />
-      </div>);
-
-  }
-  const color = score < 40 ? '#EF4444' : score < 70 ? '#EAB308' : '#22C55E';
-  const label = score < 40 ? 'CRITICAL' : score < 70 ? 'MODERATE' : 'RESILIENT';
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="font-mono text-[9px] text-[#666] tracking-widest">
-          SURVIVAL SCORE
-        </span>
-        <span
-          className="font-mono text-[9px] font-bold"
-          style={{
-            color
-          }}>
-
-          {score}% — {label}
-        </span>
-      </div>
-      <div className="w-full h-1 bg-[#1a1a1a]">
-        <div
-          className="h-full transition-all duration-500"
-          style={{
-            width: `${score}%`,
-            backgroundColor: color
-          }} />
-
-      </div>
-    </div>);
-
-}
 export function Dashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [filter, setFilter] = useState<'ALL' | AuditStatus>('ALL');
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'PROCESSING' | 'ARCHIVED'>('ALL');
   const [reloading, setReloading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const handleReload = async () => {
+  const refreshDocuments = () => {
+    if (!user) return;
+    setLoading(true);
+    authService.getUserDocuments(user.id)
+      .then(setDocuments)
+      .catch(console.error)
+      .finally(() => {
+        setLoading(false);
+        setReloading(false);
+      });
+  };
+
+  const handleReload = () => {
     setReloading(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
     setCurrentTime(new Date());
-    setReloading(false);
+    refreshDocuments();
+  };
+
+  const handleArchive = async (doc: Document) => {
+    try {
+      const updated = await authService.archiveDocument(doc.id);
+      setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+    } catch (err: any) {
+      console.error('Archive failed:', err);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await authService.deleteDocument(deleteTarget.id);
+      setDocuments((prev) => prev.filter((d) => d.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err: any) {
+      console.error('Delete failed:', err);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-  const filtered =
-  filter === 'ALL' ?
-  AUDIT_CARDS :
-  AUDIT_CARDS.filter((c) => c.status === filter);
-  const statusCounts = {
-    ACTIVE: AUDIT_CARDS.filter((c) => c.status === 'ACTIVE').length,
-    PROCESSING: AUDIT_CARDS.filter((c) => c.status === 'PROCESSING').length,
-    ARCHIVED: AUDIT_CARDS.filter((c) => c.status === 'ARCHIVED').length
-  };
+
+  useEffect(() => {
+    if (!user) return;
+    refreshDocuments();
+  }, [user]);
+
+  const filtered = documents.filter((doc) => {
+    if (filter === 'ALL') return true;
+    if (filter === 'ACTIVE') return doc.status === 'processed';
+    if (filter === 'PROCESSING') return doc.status === 'pending';
+    if (filter === 'ARCHIVED') return doc.status === 'archived';
+    return true;
+  });
+
+  const activeCount = documents.filter((d) => d.status === 'processed').length;
+  const processingCount = documents.filter((d) => d.status === 'pending').length;
+  const archivedCount = documents.filter((d) => d.status === 'archived').length;
+  const maxRounds = user?.user_usage?.rounds_per_audit || 3;
+
   return (
     <div className="p-6 min-h-full">
-      {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -173,7 +110,7 @@ export function Dashboard() {
           </div>
           <p className="font-mono text-[10px] text-[#404040] tracking-widest">
             {currentTime.toISOString().replace('T', ' ').slice(0, 19)} UTC —
-            OPERATOR: JOHN_DOE
+            OPERATOR: {user?.operator_name || 'UNKNOWN'}
           </p>
         </div>
         <Link
@@ -185,11 +122,10 @@ export function Dashboard() {
         </Link>
       </div>
 
-      {/* Stats row */}
       <div className="grid grid-cols-3 gap-px bg-[#262626] mb-6">
         <div className="bg-[#0a0a0a] px-4 py-3">
           <div className="font-mono text-lg font-bold text-[#3B82F6]">
-            {statusCounts.ACTIVE}
+            {activeCount}
           </div>
           <div className="font-mono text-[9px] text-[#404040] tracking-widest">
             ACTIVE AUDITS
@@ -197,7 +133,7 @@ export function Dashboard() {
         </div>
         <div className="bg-[#0a0a0a] px-4 py-3">
           <div className="font-mono text-lg font-bold text-yellow-400">
-            {statusCounts.PROCESSING}
+            {processingCount}
           </div>
           <div className="font-mono text-[9px] text-[#404040] tracking-widest">
             PROCESSING
@@ -205,7 +141,7 @@ export function Dashboard() {
         </div>
         <div className="bg-[#0a0a0a] px-4 py-3">
           <div className="font-mono text-lg font-bold text-[#666]">
-            {statusCounts.ARCHIVED}
+            {archivedCount}
           </div>
           <div className="font-mono text-[9px] text-[#404040] tracking-widest">
             ARCHIVED
@@ -213,7 +149,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Filter tabs */}
       <div className="flex items-center gap-0 mb-6 border-b border-[#262626]">
         {(['ALL', 'ACTIVE', 'PROCESSING', 'ARCHIVED'] as const).map((f) =>
         <button
@@ -229,58 +164,111 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* Audit Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((audit) =>
-        <Link
-          key={audit.id}
-          to={`/audit/${audit.id}`}
-          className="block bg-[#0a0a0a] border border-[#262626] p-4 hover:border-[#404040] transition-colors group">
+        {loading ?
+        <div className="col-span-3 flex items-center justify-center py-12">
+            <div className="w-6 h-6 border border-[#EF4444] border-t-transparent animate-spin" />
+          </div> :
+        filtered.length === 0 ?
+        <div className="col-span-3 text-center py-12">
+            <span className="font-mono text-[10px] text-[#404040]">NO DOCUMENTS FOUND</span>
+          </div> :
+        filtered.map((doc) =>
+        <div
+          key={doc.id}
+          className={`bg-[#050505] border border-[#262626] p-4 transition-colors ${
+          doc.status === 'archived' ?
+          'opacity-40 cursor-default' :
+          'hover:border-[#404040] cursor-pointer'
+          }`}
+          onClick={() => {
+            if (doc.status !== 'archived') {
+              navigate(`/audit/${doc.id}`);
+            }
+          }}>
 
-            {/* Card header */}
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <FileTextIcon className="w-3.5 h-3.5 text-[#404040] flex-shrink-0" />
-                <span className="font-mono text-[10px] text-[#888] truncate group-hover:text-white transition-colors">
-                  {audit.name}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <FileTextIcon className="w-3.5 h-3.5 text-[#404040]" />
+                <span className="font-mono text-[10px] text-white font-bold tracking-wider truncate max-w-[200px]">
+                  {doc.file_name}
                 </span>
               </div>
-              <span
-              className={`ml-2 flex-shrink-0 font-mono text-[9px] font-bold px-1.5 py-0.5 tracking-widest ${audit.status === 'ACTIVE' ? 'text-[#3B82F6] bg-[#3B82F6]/10 border border-[#3B82F6]/20' : audit.status === 'PROCESSING' ? 'text-yellow-400 bg-yellow-400/10 border border-yellow-400/20' : 'text-[#404040] bg-[#1a1a1a] border border-[#262626]'}`}>
-
-                {audit.status}
-              </span>
+              {doc.status === 'archived' ?
+              <span className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 text-[#404040] bg-[#1a1a1a] border border-[#262626]">
+                  ARCHIVED
+                </span> :
+              <span className={`font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 ${
+                doc.status === 'processed' ?
+                'text-[#3B82F6] bg-[#3B82F6]/10 border border-[#3B82F6]/20' :
+                doc.status === 'pending' ?
+                'text-yellow-400 bg-yellow-400/10 border border-yellow-400/20' :
+                'text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/20'
+                }`}>
+                  {doc.status === 'processed' ? 'ACTIVE' : doc.status === 'pending' ? 'PROCESSING' : 'FAILED'}
+                </span>
+              }
             </div>
 
-            {/* Score bar */}
             <div className="mb-3">
-              <ScoreBar score={audit.survivalScore} status={audit.status} />
+              {(() => {
+              const latestReport =
+                doc.audit_reports && doc.audit_reports.length > 0
+                  ? [...doc.audit_reports].sort((a, b) => b.round_number - a.round_number)[0]
+                  : null;
+              const score = latestReport?.resilience_score;
+              const scoreColor =
+                score == null ? '#404040' : score < 40 ? '#EF4444' : score < 70 ? '#EAB308' : '#22C55E';
+              const scoreLabel =
+                score == null ? 'N/A' : score < 40 ? 'CRITICAL' : score < 70 ? 'MODERATE' : 'RESILIENT';
+
+              return (
+                <>
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-mono text-[9px] text-[#404040] tracking-widest">SURVIVAL SCORE</span>
+                <span className="font-mono text-[9px]" style={{ color: scoreColor }}>
+                  {score != null ? `${score}% — ${scoreLabel}` : 'N/A'}
+                </span>
+              </div>
+              <div className="w-full h-1 bg-[#1a1a1a]">
+                {score != null && (
+                  <div className="h-full" style={{ width: `${score}%`, backgroundColor: scoreColor }} />
+                )}
+              </div>
+                </>
+              );
+            })()}
             </div>
 
-            {/* Metadata */}
             <div className="grid grid-cols-3 gap-2 pt-3 border-t border-[#1a1a1a]">
               <div>
-                <div className="font-mono text-[9px] text-[#404040] tracking-widest">
-                  ROUNDS
-                </div>
+                <div className="font-mono text-[9px] text-[#404040] tracking-widest">ROUNDS</div>
                 <div className="font-mono text-xs text-white font-bold">
-                  {audit.rounds}
+                  {doc.rounds_used || 1}/{maxRounds}
                 </div>
               </div>
               <div>
-                <div className="font-mono text-[9px] text-[#404040] tracking-widest">
-                  THREATS
-                </div>
+                <div className="font-mono text-[9px] text-[#404040] tracking-widest">THREATS</div>
                 <div className="font-mono text-xs text-[#EF4444] font-bold">
-                  {audit.threats}
+                  {(() => {
+                  const latestReport =
+                    doc.audit_reports && doc.audit_reports.length > 0
+                      ? [...doc.audit_reports].sort((a, b) => b.round_number - a.round_number)[0]
+                      : null;
+                  const threats = Array.isArray(latestReport?.vulnerabilities)
+                    ? latestReport.vulnerabilities.length
+                    : 0;
+                  return threats > 0 ? threats : 'N/A';
+                })()}
                 </div>
               </div>
               <div>
-                <div className="font-mono text-[9px] text-[#404040] tracking-widest">
-                  SIZE
-                </div>
-                <div className="font-mono text-xs text-white font-bold">
-                  {audit.size}
+                <div className="font-mono text-[9px] text-[#404040] tracking-widest">AUDIO</div>
+                <div className="font-mono text-xs font-bold">
+                  {doc.audio_debates && doc.audio_debates.length > 0 ?
+                  <span className="text-[#22C55E]">READY</span> :
+                  <span className="text-[#404040]">PENDING</span>
+                  }
                 </div>
               </div>
             </div>
@@ -288,13 +276,49 @@ export function Dashboard() {
             <div className="flex items-center gap-1 mt-2">
               <ClockIcon className="w-2.5 h-2.5 text-[#262626]" />
               <span className="font-mono text-[9px] text-[#262626]">
-                {audit.date}
+                {new Date(doc.created_at).toLocaleDateString()}
               </span>
             </div>
-          </Link>
+
+            <div className="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-[#1a1a1a]">
+              {doc.status === 'archived' ?
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleArchive(doc);
+                }}
+                className="flex items-center gap-1 px-2 py-1 text-[#EAB308] hover:text-white font-mono text-[9px] tracking-widest transition-colors"
+              >
+                  <ArchiveIcon className="w-3 h-3" />
+                  UNARCHIVE
+                </button> :
+              <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleArchive(doc);
+                    }}
+                    className="p-1 text-[#333] hover:text-[#EAB308] transition-colors"
+                    title={doc.status === 'archived' ? 'Unarchive document' : 'Archive document'}
+                  >
+                    <ArchiveIcon className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(doc);
+                    }}
+                    className="p-1 text-[#333] hover:text-[#EF4444] transition-colors"
+                    title="Delete document"
+                  >
+                    <TrashIcon className="w-3 h-3" />
+                  </button>
+                </>
+              }
+            </div>
+          </div>
         )}
 
-        {/* Upload new */}
         <Link
           to="/audit/new"
           className="bg-[#050505] border border-dashed border-[#262626] p-4 flex flex-col items-center justify-center gap-3 hover:border-[#404040] transition-colors min-h-[160px]">
@@ -305,6 +329,57 @@ export function Dashboard() {
           </span>
         </Link>
       </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#050505] border border-[#EF4444]/30 w-full max-w-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#262626]">
+              <div className="flex items-center gap-2">
+                <AlertTriangleIcon className="w-3.5 h-3.5 text-[#EF4444]" />
+                <span className="font-mono text-xs font-bold text-[#EF4444] tracking-widest">
+                  CONFIRM DELETION
+                </span>
+              </div>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="text-[#404040] hover:text-white transition-colors"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-5">
+              <p className="font-mono text-[10px] text-[#888] leading-relaxed mb-2">
+                YOU ARE ABOUT TO PERMANENTLY DELETE:
+              </p>
+              <p className="font-mono text-[10px] text-white font-bold mb-4">
+                {deleteTarget.file_name}
+              </p>
+              <p className="font-mono text-[9px] text-[#404040] leading-relaxed">
+                THIS WILL REMOVE THE DOCUMENT AND ALL ASSOCIATED AUDIO DATA. THIS ACTION CANNOT BE UNDONE.
+              </p>
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className={`flex-1 py-2.5 font-mono text-xs font-bold tracking-widest transition-colors ${
+                deleting ?
+                'bg-[#333] text-[#666] cursor-not-allowed' :
+                'bg-[#EF4444] text-white hover:bg-[#dc2626]'
+                }`}
+              >
+                {deleting ? 'DELETING...' : 'DELETE'}
+              </button>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-2.5 border border-[#262626] text-[#666] font-mono text-xs font-bold tracking-widest hover:border-[#404040] hover:text-white transition-colors"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>);
 
 }

@@ -17,6 +17,7 @@ import { Billing } from './pages/Billing';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminUsers } from './pages/AdminUsers';
 import { AdminDocuments } from './pages/AdminDocuments';
+import { AdminAudioDebates } from './pages/AdminAudioDebates';
 import { AdminPackages } from './pages/AdminPackages';
 import { AdminPayments } from './pages/AdminPayments';
 import { AdminSessions } from './pages/AdminSessions';
@@ -148,6 +149,17 @@ export function App() {
               <ProtectedRoute requiredRole="Admin">
                 <AdminLayout>
                   <AdminDocuments />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/admin/audio-debates"
+            element={
+              <ProtectedRoute requiredRole="Admin">
+                <AdminLayout>
+                  <AdminAudioDebates />
                 </AdminLayout>
               </ProtectedRoute>
             }

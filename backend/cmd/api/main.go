@@ -70,6 +70,12 @@ func main() {
 
 	log.Println("✅ Successfully connected to the database!")
 
+	// Drop old unique indexes so document round history can store multiple rows per document.
+	db.Exec("DROP INDEX IF EXISTS idx_audit_reports_document_id")
+	db.Exec("DROP INDEX IF EXISTS uni_audit_reports_document_id")
+	db.Exec("DROP INDEX IF EXISTS idx_audio_debates_document_id")
+	db.Exec("DROP INDEX IF EXISTS uni_audio_debates_document_id")
+
 	// Auto-migrate models - GORM will create/update tables automatically
 	if err := db.AutoMigrate(
 		&models.Role{},
@@ -134,7 +140,21 @@ func main() {
 
 	docRepo := repository.NewDocumentRepository(db)
 	docService := service.NewDocumentServiceWithCloudinary(docRepo, cloudinaryService)
-	docHandler := handlers.NewDocumentHandler(docService)
+
+	ollamaService := service.NewOllamaService()
+	ttsService, ttsErr := service.NewTTSService()
+	if ttsErr != nil {
+		log.Printf("⚠️  Warning: TTS service not initialized: %v\n", ttsErr)
+	}
+
+	var pipelineService *service.AuditPipelineService
+	if cloudinaryService != nil && ttsService != nil {
+		pipelineService = service.NewAuditPipelineService(docRepo, ollamaService, ttsService, cloudinaryService)
+	} else {
+		log.Println("⚠️  Warning: Audit pipeline disabled due to missing dependencies")
+	}
+
+	docHandler := handlers.NewDocumentHandler(docService, pipelineService, userRepo)
 
 	offerRepo := repository.NewOfferRepository(db)
 	offerService := service.NewOfferService(offerRepo)
@@ -148,7 +168,7 @@ func main() {
 	routes.SetupHealthRoutes(api)
 	routes.SetupAuthRoutes(api, userHandler, resetPasswordHandler)
 	routes.SetupUserRoutes(api, userHandler)
-	routes.SetupDocumentRoutes(api, docHandler)
+	routes.SetupDocumentRoutes(api, db, docHandler)
 	routes.SetupOfferRoutes(api, offerHandler)
 	routes.SetupPaymentRoutes(api, paymentHandler)
 

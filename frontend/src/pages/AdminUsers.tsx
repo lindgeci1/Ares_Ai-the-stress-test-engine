@@ -13,20 +13,26 @@ import {
   ShieldAlertIcon,
   RefreshCwIcon } from
 'lucide-react';
-import { authService, User as APIUser } from '../services/authService';
+import { authService, Payment, User as APIUser } from '../services/authService';
 import { dataCache } from '../utils/dataCache';
 import { useToast } from '../context/useToast';
 
 const USERS_CACHE_KEY = 'admin:users';
 
 type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'PENDING';
-type UserPlan = 'FREE' | 'PRO' | 'ENTERPRISE';
+type PlanHistoryItem = {
+  planName: string;
+  createdAt: string;
+  status: string;
+  amountPaid: number;
+};
 
 type User = {
-  id: string;
+  id: number;
   name: string;
   email: string;
-  plan: UserPlan;
+  latestPlan: string;
+  previousPlans: PlanHistoryItem[];
   status: UserStatus;
   auditsPerformed: number;
   auditLimit: number;
@@ -52,6 +58,7 @@ export function AdminUsers() {
   const [loading, setLoading] = useState(!cachedUsers);
   const [reloading, setReloading] = useState(false);
   const [error, setError] = useState('');
+  const [planHistoryTarget, setPlanHistoryTarget] = useState<User | null>(null);
   const [tempModal, setTempModal] = useState<TempUserModal>({
     show: false,
     name: '',
@@ -86,14 +93,40 @@ export function AdminUsers() {
         setLoading(true);
       }
       setError('');
-      const apiUsers = await authService.getAllUsers();
+      const [apiUsers, payments] = await Promise.all([
+        authService.getAllUsers(),
+        authService.getAllPayments(),
+      ]);
+
+      const paymentHistoryByUser = new Map<number, PlanHistoryItem[]>();
+      payments
+        .filter((payment) => payment.offer_id !== null || payment.offer)
+        .forEach((payment) => {
+          const planName = payment.offer?.name || payment.offer?.tier_label || (payment.offer_id !== null ? `OFFER #${payment.offer_id}` : 'UNKNOWN');
+          const item: PlanHistoryItem = {
+            planName,
+            createdAt: payment.created_at,
+            status: payment.status,
+            amountPaid: payment.amount_paid,
+          };
+
+          const existing = paymentHistoryByUser.get(payment.user_id) ?? [];
+          existing.push(item);
+          paymentHistoryByUser.set(payment.user_id, existing);
+        });
+
+      paymentHistoryByUser.forEach((items, userID) => {
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        paymentHistoryByUser.set(userID, items);
+      });
       
       // Transform API users to local format
       const transformedUsers = apiUsers.map((apiUser) => ({
         id: apiUser.id,
         name: apiUser.email.split('@')[0], // Use email prefix as name
         email: apiUser.email,
-        plan: getPlanFromTier(apiUser.subscription_tier),
+        latestPlan: paymentHistoryByUser.get(apiUser.id)?.[0]?.planName || apiUser.subscription_tier,
+        previousPlans: paymentHistoryByUser.get(apiUser.id)?.slice(1) ?? [],
         status: 'ACTIVE' as UserStatus,
         auditsPerformed: apiUser.user_usage?.audits_performed ?? 0,
         auditLimit: apiUser.user_usage?.audit_limit ?? 0,
@@ -122,17 +155,12 @@ export function AdminUsers() {
     await fetchUsers({ forceRefresh: true, isReload: true });
   };
 
-  const getPlanFromTier = (tier: string): UserPlan => {
-    if (tier.toLowerCase() === 'enterprise') return 'ENTERPRISE';
-    if (tier.toLowerCase() === 'pro') return 'PRO';
-    return 'FREE';
-  };
-
   const filtered = users.filter(
     (u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
       u.email.toLowerCase().includes(search.toLowerCase()) ||
-      u.plan.toLowerCase().includes(search.toLowerCase()) ||
+        u.latestPlan.toLowerCase().includes(search.toLowerCase()) ||
+        u.previousPlans.some((plan) => plan.planName.toLowerCase().includes(search.toLowerCase())) ||
       u.status.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -197,10 +225,21 @@ export function AdminUsers() {
     setGeneratedKey(key);
   };
 
-  const planStyle: Record<UserPlan, string> = {
-    ENTERPRISE: 'text-[#3B82F6] bg-[#3B82F6]/10 border border-[#3B82F6]/20',
-    PRO: 'text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/20',
-    FREE: 'text-[#404040] bg-[#1a1a1a] border border-[#262626]'
+  const planStyle = (planName: string): string => {
+    const lower = planName.toLowerCase();
+    if (lower.includes('titan') || lower.includes('pro')) {
+      return 'text-[#EF4444] bg-[#EF4444]/15 border border-[#EF4444]/40';
+    }
+
+    if (lower.includes('strategist') || lower.includes('enterprise')) {
+      return 'text-[#3B82F6] bg-[#3B82F6]/15 border border-[#3B82F6]/40';
+    }
+
+    if (lower.includes('starter') || lower.includes('free')) {
+      return 'text-[#9CA3AF] bg-[#1a1a1a] border border-[#3a3a3a]';
+    }
+
+    return 'text-[#EAB308] bg-[#EAB308]/15 border border-[#EAB308]/40';
   };
 
   const statusStyle: Record<UserStatus, string> = {
@@ -330,11 +369,21 @@ export function AdminUsers() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span
-                  className={`font-mono text-[9px] font-bold px-1.5 py-0.5 tracking-widest ${planStyle[user.plan]}`}>
-
-                    {user.plan}
-                  </span>
+                  <div className="inline-flex flex-col gap-1">
+                    <button
+                      onClick={() => setPlanHistoryTarget(user)}
+                      className={`font-mono text-[9px] font-bold px-1.5 py-0.5 tracking-widest text-left transition-colors hover:text-white ${planStyle(user.latestPlan)}`}
+                      title="Open plan history"
+                    >
+                      {user.latestPlan.toUpperCase()}
+                    </button>
+                    <button
+                      onClick={() => setPlanHistoryTarget(user)}
+                      className="font-mono text-[8px] text-[#404040] hover:text-white text-left transition-colors"
+                    >
+                      {user.previousPlans.length > 0 ? `VIEW PREVIOUS (${user.previousPlans.length})` : 'VIEW PLAN HISTORY'}
+                    </button>
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <span
@@ -421,7 +470,7 @@ export function AdminUsers() {
             ['OPERATOR ID', viewUser.id],
             ['FULL NAME', viewUser.name],
             ['EMAIL ADDRESS', viewUser.email],
-            ['PLAN', viewUser.plan],
+            ['PLAN', viewUser.latestPlan.toUpperCase()],
             ['STATUS', viewUser.status],
             ['AUDITS PERFORMED', String(viewUser.auditsPerformed)],
             ['AUDIT LIMIT', String(viewUser.auditLimit)],
@@ -468,6 +517,51 @@ export function AdminUsers() {
 
                 CLOSE
               </button>
+            </div>
+          </div>
+        </div>
+      }
+
+      {/* ── PREVIOUS PLANS MODAL ── */}
+      {planHistoryTarget &&
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#050505] border border-[#262626] w-full max-w-md max-h-[75vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#262626]">
+              <div className="flex items-center gap-2">
+                <UsersIcon className="w-3.5 h-3.5 text-[#3B82F6]" />
+                <span className="font-mono text-xs font-bold text-white tracking-widest">
+                  PREVIOUS PLANS
+                </span>
+              </div>
+              <button
+                onClick={() => setPlanHistoryTarget(null)}
+                className="text-[#404040] hover:text-white transition-colors">
+
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 border-b border-[#1a1a1a]">
+              <div className="font-mono text-[10px] text-white">{planHistoryTarget.name}</div>
+              <div className="font-mono text-[9px] text-[#404040]">
+                CURRENT: {planHistoryTarget.latestPlan.toUpperCase()}
+              </div>
+            </div>
+            <div className="p-5 overflow-auto space-y-2">
+              {planHistoryTarget.previousPlans.length === 0 ?
+              <span className="font-mono text-[9px] text-[#404040]">NO PREVIOUS PLANS</span> :
+              planHistoryTarget.previousPlans.map((plan, index) =>
+              <div key={`${planHistoryTarget.id}-${plan.createdAt}-${index}`} className="border border-[#1a1a1a] bg-[#0b0b0b] px-3 py-2">
+                  <div className="font-mono text-[9px] text-white">{plan.planName.toUpperCase()}</div>
+                  <div className="font-mono text-[8px] text-[#666] mt-0.5">
+                    {new Date(plan.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                    {' · '}
+                    {plan.status.toUpperCase()}
+                    {' · $'}
+                    {plan.amountPaid.toFixed(2)}
+                  </div>
+                </div>
+              )
+              }
             </div>
           </div>
         </div>

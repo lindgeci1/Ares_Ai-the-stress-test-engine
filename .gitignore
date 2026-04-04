@@ -6,6 +6,7 @@ vendor/
 .env
 .env.local
 .env.*.local
+ares-project-491709-2993de9840fa.json
 
 # Build outputs
 dist/
