@@ -30,6 +30,9 @@ export interface User {
   id: number;  // Backend returns number, not string
   email: string;
   operator_name: string;
+  is_temp: boolean;
+  access_key?: string;
+  expires_at?: string;
   subscription_tier: string;
   user_usage?: UserUsage;
   status: string;
@@ -46,7 +49,19 @@ export interface RegisterData {
 
 export interface LoginData {
   email: string;
-  password: string;
+  password?: string;
+  access_key?: string;
+}
+
+export interface GenerateTempUserData {
+  operator_name: string;
+  email: string;
+  expires_at: string;
+}
+
+export interface GenerateTempUserResponse {
+  user: User;
+  access_key: string;
 }
 
 export interface LoginResponse {
@@ -180,6 +195,14 @@ export interface AdminStats {
   }[];
 }
 
+export interface PublicStats {
+  total_documents: number;
+  total_audits: number;
+  total_threats: number;
+  avg_resilience: number;
+  total_audio_debates: number;
+}
+
 export interface Document {
   id: number;
   user_id: number;
@@ -283,6 +306,16 @@ export const authService = {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Login failed');
+    }
+  },
+
+  // Generate a temporary user (admin only)
+  async generateTempUser(data: GenerateTempUserData): Promise<GenerateTempUserResponse> {
+    try {
+      const response = await axiosInstance.post<GenerateTempUserResponse>('/users/temp', data);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to generate temp user');
     }
   },
 
@@ -399,6 +432,21 @@ export const authService = {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Failed to fetch admin stats');
+    }
+  },
+
+  async getPublicStats(): Promise<PublicStats> {
+    try {
+      const response = await axiosInstance.get<PublicStats>('/public/stats');
+      return response.data;
+    } catch {
+      return {
+        total_documents: 0,
+        total_audits: 0,
+        total_threats: 0,
+        avg_resilience: 0,
+        total_audio_debates: 0,
+      };
     }
   },
 

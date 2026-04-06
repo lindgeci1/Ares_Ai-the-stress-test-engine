@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ZapIcon,
@@ -11,8 +11,7 @@ import {
   LockIcon } from
 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
-const TICKER_TEXT =
-'ACTIVE AUDITS: 1,247  •  THREATS DETECTED: 89,432  •  SYSTEM UPTIME: 99.97%  •  DOCUMENTS PROCESSED: 45,891  •  AVG SURVIVAL SCORE: 62.4%  •  RED TEAM WINS: 34,201  •  BLUE TEAM WINS: 11,690  •';
+import { authService, type PublicStats } from '../services/authService';
 const DEMO_HEATMAP_PARAGRAPHS = [
 {
   text: 'The company maintains a strict policy of data confidentiality and all user information is encrypted at rest using AES-256 encryption standards.',
@@ -74,13 +73,24 @@ const DEMO_BATTLE_LOG = [
 export function Landing() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
+  const [stats, setStats] = useState<PublicStats | null>(null);
+
+  useEffect(() => {
+    authService.getPublicStats().then(setStats);
+  }, []);
+
+  const tickerText = stats
+    ? `ACTIVE AUDITS: ${stats.total_audits.toLocaleString()}  •  THREATS DETECTED: ${stats.total_threats.toLocaleString()}  •  DOCUMENTS PROCESSED: ${stats.total_documents.toLocaleString()}  •  AVG SURVIVAL SCORE: ${stats.avg_resilience}%  •  AUDIO DEBATES: ${stats.total_audio_debates.toLocaleString()}  •  `
+    : 'LOADING SYSTEM METRICS...  •  ';
   return (
     <div className="min-h-screen w-full bg-[#050505] text-white">
       {/* Ticker Bar */}
       <div className="w-full bg-[#0a0a0a] border-b border-[#262626] overflow-hidden py-2">
         <div className="ticker-content font-mono text-[10px] text-[#EF4444] tracking-widest">
-          {TICKER_TEXT}
-          {TICKER_TEXT}
+          {tickerText}
+          {tickerText}
+          {tickerText}
+          {tickerText}
         </div>
       </div>
 
@@ -337,40 +347,40 @@ export function Landing() {
       {/* Metrics */}
       <section
         id="metrics"
-        className="px-8 py-16 border-t border-[#262626] bg-[#080808]">
+        className="px-8 py-16 border-t border-[#262626]">
 
         <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#262626]">
-            <div className="bg-[#080808] p-6 text-center">
-              <div className="font-mono text-3xl font-bold text-white mb-1">
-                45,891
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+            <div>
+              <div className="font-mono text-3xl md:text-4xl font-bold text-white mb-1">
+                {stats?.total_documents.toLocaleString() || '—'}
               </div>
               <div className="font-mono text-[10px] text-[#404040] tracking-widest">
                 DOCS PROCESSED
               </div>
             </div>
-            <div className="bg-[#080808] p-6 text-center">
-              <div className="font-mono text-3xl font-bold text-[#EF4444] mb-1">
-                89,432
+            <div>
+              <div className="font-mono text-3xl md:text-4xl font-bold text-[#EF4444] mb-1">
+                {stats?.total_threats.toLocaleString() || '—'}
               </div>
               <div className="font-mono text-[10px] text-[#404040] tracking-widest">
                 THREATS FOUND
               </div>
             </div>
-            <div className="bg-[#080808] p-6 text-center">
-              <div className="font-mono text-3xl font-bold text-[#3B82F6] mb-1">
-                62.4%
+            <div>
+              <div className="font-mono text-3xl md:text-4xl font-bold text-[#3B82F6] mb-1">
+                {stats ? `${stats.avg_resilience}%` : '—'}
               </div>
               <div className="font-mono text-[10px] text-[#404040] tracking-widest">
                 AVG SURVIVAL
               </div>
             </div>
-            <div className="bg-[#080808] p-6 text-center">
-              <div className="font-mono text-3xl font-bold text-white mb-1">
-                99.97%
+            <div>
+              <div className="font-mono text-3xl md:text-4xl font-bold text-white mb-1">
+                {stats?.total_audits.toLocaleString() || '—'}
               </div>
               <div className="font-mono text-[10px] text-[#404040] tracking-widest">
-                UPTIME
+                TOTAL AUDITS
               </div>
             </div>
           </div>

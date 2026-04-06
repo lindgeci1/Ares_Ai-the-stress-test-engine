@@ -11,13 +11,15 @@ import { authService, type AdminStats, type Offer } from '../services/authServic
 import { dataCache } from '../utils/dataCache';
 
 const OFFERS_CACHE_KEY = 'admin:offers';
+const STATS_CACHE_KEY = 'admin:stats';
 
 export function AdminDashboard() {
   const cachedOffers = dataCache.get<Offer[]>(OFFERS_CACHE_KEY);
+  const cachedStats = dataCache.get<AdminStats>(STATS_CACHE_KEY);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [stats, setStats] = useState<AdminStats | null>(cachedStats);
   const [offers, setOffers] = useState<Offer[]>(cachedOffers ?? []);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedStats);
   const [offersLoading, setOffersLoading] = useState(!cachedOffers);
   const [reloading, setReloading] = useState(false);
   const [toggling, setToggling] = useState<number | null>(null);
@@ -31,9 +33,21 @@ export function AdminDashboard() {
     const { forceRefresh = false, isReload = false } = options;
 
     if (!forceRefresh) {
-      const cached = dataCache.get<Offer[]>(OFFERS_CACHE_KEY);
-      if (cached) {
-        setOffers(cached);
+      const cachedStatsData = dataCache.get<AdminStats>(STATS_CACHE_KEY);
+      const cachedOffersData = dataCache.get<Offer[]>(OFFERS_CACHE_KEY);
+
+      if (cachedStatsData) {
+        setStats(cachedStatsData);
+        setLoading(false);
+      }
+
+      if (cachedOffersData) {
+        setOffers(cachedOffersData);
+        setOffersLoading(false);
+      }
+
+      if (cachedStatsData && cachedOffersData) {
+        return;
       }
     }
 
@@ -51,6 +65,7 @@ export function AdminDashboard() {
       ]);
 
       setStats(statsData);
+      dataCache.set(STATS_CACHE_KEY, statsData);
       setOffers(offersData);
       dataCache.set(OFFERS_CACHE_KEY, offersData);
     } catch (error) {
@@ -67,6 +82,7 @@ export function AdminDashboard() {
   }, []);
 
   const handleReload = async () => {
+    dataCache.invalidate(STATS_CACHE_KEY);
     dataCache.invalidate(OFFERS_CACHE_KEY);
     await loadDashboard({ forceRefresh: true, isReload: true });
   };
@@ -210,7 +226,7 @@ export function AdminDashboard() {
                 </span>
               </div>
               <div className="divide-y divide-[#1a1a1a] max-h-[340px] overflow-y-auto">
-                {!stats?.recent_activity.length ? (
+                {!stats?.recent_activity?.length ? (
                   <div className="px-4 py-6 text-center">
                     <span className="font-mono text-[9px] text-[#404040]">NO RECENT ACTIVITY</span>
                   </div>

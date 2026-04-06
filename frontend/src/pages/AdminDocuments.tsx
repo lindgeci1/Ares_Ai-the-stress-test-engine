@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   FileTextIcon,
   TrashIcon,
@@ -16,9 +16,9 @@ import {
   type User as APIUser,
   type AuditReport,
 } from '../services/authService';
-import { AuthContext } from '../context/AuthContext';
 import { dataCache } from '../utils/dataCache';
 import { useToast } from '../context/useToast';
+import { exportToPdf } from '../utils/exportPdf';
 
 const DOCUMENTS_CACHE_KEY = 'admin:documents';
 
@@ -79,7 +79,6 @@ type SortKey = 'name' | 'owner' | 'resilienceScore' | 'uploadDate' | 'rounds';
 
 export function AdminDocuments() {
   const { showToast } = useToast();
-  const authContext = useContext(AuthContext);
   const cachedDocuments = dataCache.get<DocumentsCachePayload>(DOCUMENTS_CACHE_KEY);
 
   const [documents, setDocuments] = useState<AdminDocument[]>(() => {
@@ -105,9 +104,6 @@ export function AdminDocuments() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [viewDoc, setViewDoc] = useState<AdminDocument | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminDocument | null>(null);
-  const [uploadModal, setUploadModal] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [resilienceHistoryDoc, setResilienceHistoryDoc] = useState<BackendDocument | null>(null);
 
   useEffect(() => {
@@ -212,26 +208,26 @@ export function AdminDocuments() {
     }
   };
 
-  const handleUpload = async () => {
-    if (!uploadFile || !authContext?.user) return;
-
-    try {
-      setUploading(true);
-      setError(null);
-
-      await authService.createDocument(authContext.user.id, uploadFile);
-      await fetchDocuments({ forceRefresh: true });
-
-      setUploadModal(false);
-      setUploadFile(null);
-      showToast('DOCUMENT UPLOADED', 'success');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to upload document';
-      setError(message);
-      showToast(message, 'error');
-    } finally {
-      setUploading(false);
-    }
+  const handleExportPdf = () => {
+    exportToPdf({
+      title: 'GLOBAL DOCUMENT REGISTRY',
+      subtitle: `${documents.length} documents - exported ${new Date().toISOString()}`,
+      columns: ['ID', 'DOCUMENT', 'OWNER', 'RESILIENCE', 'STATUS', 'UPLOADED', 'ROUNDS'],
+      rows: documents.map((d) => {
+        const latest = getLatestReport(d.source);
+        const score = latest?.resilience_score;
+        return [
+          d.source.id,
+          d.source.file_name,
+          d.owner,
+          score != null ? `${score}%` : '-',
+          d.status,
+          formatDate(d.source.created_at),
+          d.source.rounds_used || 1,
+        ];
+      }),
+      filename: `ares-documents-${Date.now()}`,
+    });
   };
 
   const filtered = useMemo(() => {
@@ -324,15 +320,11 @@ export function AdminDocuments() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setUploadModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 border border-[#22C55E] text-[#22C55E] font-mono text-xs tracking-widest hover:bg-[#22C55E]/10 transition-colors"
+                onClick={handleExportPdf}
+                className="flex items-center gap-2 px-4 py-2.5 border border-[#262626] text-[#666] font-mono text-xs tracking-widest hover:border-[#404040] hover:text-white transition-colors"
               >
-                <FileTextIcon className="w-3.5 h-3.5" />
-                UPLOAD DOCUMENT
-              </button>
-              <button className="flex items-center gap-2 px-4 py-2.5 border border-[#262626] text-[#666] font-mono text-xs tracking-widest hover:border-[#404040] hover:text-white transition-colors">
                 <DownloadIcon className="w-3.5 h-3.5" />
-                EXPORT CSV
+                EXPORT PDF
               </button>
             </div>
           </div>
@@ -663,67 +655,6 @@ export function AdminDocuments() {
                 className="w-full py-2 border border-[#262626] text-[#666] font-mono text-xs font-bold tracking-widest hover:border-[#404040] hover:text-white transition-colors"
               >
                 CLOSE
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {uploadModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#050505] border border-[#262626] w-full max-w-md">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#262626]">
-              <div className="flex items-center gap-2">
-                <FileTextIcon className="w-3.5 h-3.5 text-[#22C55E]" />
-                <span className="font-mono text-xs font-bold text-white tracking-widest">UPLOAD DOCUMENT</span>
-              </div>
-              <button
-                onClick={() => {
-                  setUploadModal(false);
-                  setUploadFile(null);
-                }}
-                className="text-[#404040] hover:text-white transition-colors"
-              >
-                <XIcon className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="px-5 py-4">
-              <div
-                onClick={() => document.getElementById('file-input')?.click()}
-                className="border-2 border-dashed border-[#262626] rounded px-4 py-8 text-center cursor-pointer hover:border-[#22C55E] transition-colors"
-              >
-                <FileTextIcon className="w-8 h-8 text-[#404040] mx-auto mb-2" />
-                <div className="font-mono text-[10px] text-[#666]">{uploadFile ? uploadFile.name : 'CLICK TO SELECT FILE OR DRAG & DROP'}</div>
-                <div className="font-mono text-[9px] text-[#333] mt-1">Supported: PDF, DOCX, DOC, TXT</div>
-              </div>
-              <input
-                id="file-input"
-                type="file"
-                accept=".pdf,.docx,.doc,.txt"
-                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                className="hidden"
-              />
-            </div>
-            <div className="px-5 pb-5 flex gap-2">
-              <button
-                onClick={handleUpload}
-                disabled={!uploadFile || uploading}
-                className={`flex-1 py-2.5 font-mono text-xs font-bold tracking-widest transition-colors ${
-                  !uploadFile || uploading
-                    ? 'bg-[#333] text-[#666] cursor-not-allowed'
-                    : 'bg-[#22C55E] text-white hover:bg-[#16a34a]'
-                }`}
-              >
-                {uploading ? 'UPLOADING...' : 'UPLOAD'}
-              </button>
-              <button
-                onClick={() => {
-                  setUploadModal(false);
-                  setUploadFile(null);
-                }}
-                className="flex-1 py-2.5 border border-[#262626] text-[#666] font-mono text-xs font-bold tracking-widest hover:border-[#404040] hover:text-white transition-colors"
-              >
-                CANCEL
               </button>
             </div>
           </div>

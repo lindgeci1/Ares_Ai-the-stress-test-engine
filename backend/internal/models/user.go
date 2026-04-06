@@ -17,6 +17,9 @@ type User struct {
 	Email            string         `json:"email" gorm:"type:varchar(255);uniqueIndex;not null"`
 	PasswordHash     string         `json:"-" gorm:"type:varchar(255);not null"`
 	OperatorName     string         `json:"operator_name" gorm:"type:varchar(255)"`
+	IsTemp           bool           `json:"is_temp" gorm:"default:false"`
+	AccessKey        *string        `json:"access_key,omitempty" gorm:"type:varchar(255);uniqueIndex"`
+	ExpiresAt        *time.Time     `json:"expires_at,omitempty"`
 	StripeCustomerID *string        `json:"stripe_customer_id,omitempty" gorm:"type:varchar(255)"`
 	SubscriptionTier string         `json:"subscription_tier" gorm:"type:varchar(50);default:'Free'"`
 	Status           string         `json:"status" gorm:"type:varchar(50);default:'active'"`
@@ -113,8 +116,9 @@ type RegisterRequest struct {
 
 // LoginRequest represents the login payload
 type LoginRequest struct {
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required"`
+	Email     string `json:"email" validate:"required,email"`
+	Password  string `json:"password"`
+	AccessKey string `json:"access_key"`
 }
 
 // LoginResponse represents the login response

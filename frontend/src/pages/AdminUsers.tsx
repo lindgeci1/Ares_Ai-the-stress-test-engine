@@ -3,6 +3,7 @@ import {
   UsersIcon,
   TrashIcon,
   PlusIcon,
+  DownloadIcon,
   XIcon,
   SearchIcon,
   CalendarIcon,
@@ -13,9 +14,10 @@ import {
   ShieldAlertIcon,
   RefreshCwIcon } from
 'lucide-react';
-import { authService, Payment, User as APIUser } from '../services/authService';
+import { authService, User as APIUser } from '../services/authService';
 import { dataCache } from '../utils/dataCache';
 import { useToast } from '../context/useToast';
+import { exportToPdf } from '../utils/exportPdf';
 
 const USERS_CACHE_KEY = 'admin:users';
 
@@ -50,6 +52,7 @@ type TempUserModal = {
 
 export function AdminUsers() {
   const { showToast } = useToast();
+  const todayIso = new Date().toISOString().split('T')[0];
   const cachedUsers = dataCache.get<User[]>(USERS_CACHE_KEY);
   const [users, setUsers] = useState<User[]>(cachedUsers ?? []);
   const [search, setSearch] = useState('');
@@ -66,6 +69,7 @@ export function AdminUsers() {
     expiry: ''
   });
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [generatingTempUser, setGeneratingTempUser] = useState(false);
 
   // Fetch users on component mount
   useEffect(() => {
@@ -220,9 +224,48 @@ export function AdminUsers() {
     }
   };
 
-  const handleGenerateKey = () => {
-    const key = `ARES-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-ENT`;
-    setGeneratedKey(key);
+  const handleGenerateKey = async () => {
+    if (!tempModal.name.trim() || !tempModal.email.trim() || !tempModal.expiry) {
+      showToast('NAME, EMAIL, AND EXPIRY ARE REQUIRED', 'error');
+      return;
+    }
+
+    try {
+      setGeneratingTempUser(true);
+      const response = await authService.generateTempUser({
+        operator_name: tempModal.name.trim(),
+        email: tempModal.email.trim(),
+        expires_at: new Date(tempModal.expiry).toISOString(),
+      });
+
+      setGeneratedKey(response.access_key);
+      await fetchUsers({ forceRefresh: true });
+      showToast('TEMP USER CREATED', 'success');
+    } catch (err: any) {
+      const message = err.message || 'Failed to create temp user';
+      setError(message);
+      showToast(message, 'error');
+    } finally {
+      setGeneratingTempUser(false);
+    }
+  };
+
+  const handleExportPdf = () => {
+    exportToPdf({
+      title: 'ENTITY MANAGEMENT - USER REGISTRY',
+      subtitle: `${users.length} users - exported ${new Date().toISOString()}`,
+      columns: ['ID', 'OPERATOR', 'EMAIL', 'PLAN', 'STATUS', 'AUDITS', 'JOINED'],
+      rows: users.map((u) => [
+        u.id,
+        u.apiUser.operator_name,
+        u.email,
+        u.latestPlan,
+        u.status,
+        `${u.auditsPerformed}/${u.auditLimit}`,
+        u.joined,
+      ]),
+      filename: `ares-users-${Date.now()}`,
+    });
   };
 
   const planStyle = (planName: string): string => {
@@ -282,20 +325,29 @@ export function AdminUsers() {
             {users.filter((u) => u.status === 'ACTIVE').length} ACTIVE
           </p>
         </div>
-        <button
-          onClick={() =>
-            setTempModal({
-              show: true,
-              name: '',
-              email: '',
-              expiry: ''
-            })
-          }
-          className="flex items-center gap-2 px-4 py-2.5 bg-[#EF4444] text-white font-mono text-xs font-bold tracking-widest hover:bg-[#dc2626] transition-colors">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportPdf}
+            className="flex items-center gap-2 px-4 py-2.5 border border-[#262626] text-[#666] font-mono text-xs tracking-widest hover:border-[#404040] hover:text-white transition-colors"
+          >
+            <DownloadIcon className="w-3.5 h-3.5" />
+            EXPORT PDF
+          </button>
+          <button
+            onClick={() =>
+              setTempModal({
+                show: true,
+                name: '',
+                email: '',
+                expiry: ''
+              })
+            }
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#EF4444] text-white font-mono text-xs font-bold tracking-widest hover:bg-[#dc2626] transition-colors">
 
-          <PlusIcon className="w-3.5 h-3.5" />
-          GENERATE TEMP USER
-        </button>
+            <PlusIcon className="w-3.5 h-3.5" />
+            GENERATE TEMP USER
+          </button>
+        </div>
       </div>
 
       {/* Error message */}
@@ -636,10 +688,10 @@ export function AdminUsers() {
               <XIcon className="w-4 h-4" />
             </button>
             <h2 className="font-sans text-base font-bold text-white mb-1">
-              GENERATE TEMP USER
+              CREATE TEMPORARY ACCESS KEY
             </h2>
             <p className="font-mono text-[10px] text-[#404040] mb-5 tracking-wider">
-              CREATE 24-HOUR ENTERPRISE ACCESS KEY
+              CREATE TEMPORARY ACCESS KEY
             </p>
             <div className="scanning-bar mb-5" />
             {!generatedKey ?
@@ -692,14 +744,16 @@ export function AdminUsers() {
                   expiry: e.target.value
                 }))
                 }
+                  min={todayIso}
                 className="w-full bg-[#050505] border border-[#262626] px-3 py-2.5 text-sm font-mono text-white focus:border-[#3B82F6] focus:outline-none transition-colors [color-scheme:dark]" />
 
                 </div>
                 <button
               onClick={handleGenerateKey}
+              disabled={generatingTempUser}
               className="w-full py-3 bg-[#EF4444] text-white font-mono text-sm font-bold tracking-widest hover:bg-[#dc2626] transition-colors">
 
-                  GENERATE ACCESS KEY
+                  {generatingTempUser ? 'GENERATING...' : 'GENERATE ACCESS KEY'}
                 </button>
               </div> :
 
@@ -713,8 +767,13 @@ export function AdminUsers() {
                   </div>
                 </div>
                 <div className="font-mono text-[9px] text-[#404040]">
-                  EXPIRES: {tempModal.expiry || '24 HOURS FROM NOW'} —
-                  ENTERPRISE TIER ACCESS
+                  <span className="font-mono text-[9px] text-[#404040] tracking-widest">
+                    ACTIVE UNTIL: {tempModal.expiry ? new Date(tempModal.expiry).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    }) : '—'} — TEMPORARY ACCESS
+                  </span>
                 </div>
                 <button
               onClick={() => {

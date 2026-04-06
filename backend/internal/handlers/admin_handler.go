@@ -85,3 +85,36 @@ func GetAdminStats(db *gorm.DB) fiber.Handler {
 		})
 	}
 }
+
+// GetPublicStats returns limited platform metrics for the landing page.
+// GET /api/v1/public/stats - no auth required.
+func GetPublicStats(db *gorm.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		var totalDocuments int64
+		db.Model(&models.Document{}).Count(&totalDocuments)
+
+		var totalAuditReports int64
+		db.Model(&models.AuditReport{}).Count(&totalAuditReports)
+
+		var avgResilience float64
+		db.Model(&models.AuditReport{}).
+			Where("resilience_score IS NOT NULL").
+			Select("COALESCE(AVG(resilience_score), 0)").
+			Scan(&avgResilience)
+
+		var totalThreats int64
+		db.Raw("SELECT COALESCE(SUM(jsonb_array_length(vulnerabilities)), 0) FROM audit_reports WHERE vulnerabilities IS NOT NULL AND vulnerabilities != 'null'").
+			Scan(&totalThreats)
+
+		var totalAudioDebates int64
+		db.Model(&models.AudioDebate{}).Count(&totalAudioDebates)
+
+		return c.JSON(fiber.Map{
+			"total_documents":     totalDocuments,
+			"total_audits":        totalAuditReports,
+			"total_threats":       totalThreats,
+			"avg_resilience":      math.Round(avgResilience*10) / 10,
+			"total_audio_debates": totalAudioDebates,
+		})
+	}
+}

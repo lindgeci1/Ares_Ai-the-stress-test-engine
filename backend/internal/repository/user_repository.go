@@ -92,6 +92,62 @@ func (r *UserRepository) RegisterUser(email string, passwordHash string, operato
 	return user, nil
 }
 
+// CreateTempUser creates a temporary user with limited usage and user role assignment.
+func (r *UserRepository) CreateTempUser(email string, passwordHash string, operatorName string, accessKey string, expiresAt time.Time) (*models.User, error) {
+	var user *models.User
+
+	// Ensure email is unique.
+	var existingUser models.User
+	if err := r.db.Where("email = ?", strings.ToLower(strings.TrimSpace(email))).First(&existingUser).Error; err == nil {
+		return nil, fmt.Errorf("Email already registered")
+	}
+
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		newUser := &models.User{
+			Email:            strings.ToLower(strings.TrimSpace(email)),
+			PasswordHash:     passwordHash,
+			OperatorName:     operatorName,
+			IsTemp:           true,
+			AccessKey:        &accessKey,
+			ExpiresAt:        &expiresAt,
+			SubscriptionTier: "Temp",
+			Status:           "active",
+		}
+
+		if err := tx.Create(newUser).Error; err != nil {
+			return fmt.Errorf("create temp user: %w", err)
+		}
+
+		if err := tx.Create(&models.UserRole{UserID: newUser.ID, RoleID: 2}).Error; err != nil {
+			return fmt.Errorf("assign temp user role: %w", err)
+		}
+
+		usage := &models.UserUsage{
+			UserID:          newUser.ID,
+			AuditsPerformed: 0,
+			AuditLimit:      3,
+			RoundsPerAudit:  3,
+		}
+
+		if err := tx.Create(usage).Error; err != nil {
+			return fmt.Errorf("create temp usage: %w", err)
+		}
+
+		user = newUser
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err := r.db.Preload("Roles").Preload("UserUsage").First(user, "id = ?", user.ID).Error; err != nil {
+		return nil, fmt.Errorf("fetch temp user with relations: %w", err)
+	}
+
+	return user, nil
+}
+
 // GetByID retrieves a user by ID with preloaded roles
 func (r *UserRepository) GetByID(id uint) (*models.User, error) {
 	var user models.User
