@@ -12,6 +12,7 @@ func SetupUserRoutes(api fiber.Router, userHandler *handlers.UserHandler) {
 
 	// All user routes are Admin only
 	users.Get("", middleware.RequireRole("Admin"), userHandler.GetAllUsers)
+	users.Post("/temp", middleware.RequireRole("Admin"), userHandler.GenerateTempUser)
 	users.Get("/sessions", middleware.RequireRole("Admin"), userHandler.GetAllSessions)
 	users.Delete("/sessions/expired", middleware.RequireRole("Admin"), userHandler.ClearExpiredSessions)
 	users.Get("/:id", middleware.RequireRole("Admin"), userHandler.GetUserByID)

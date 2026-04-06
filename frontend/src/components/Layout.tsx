@@ -41,6 +41,7 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
   const { showToast } = useToast();
+  const isTemp = user?.is_temp || false;
   const auditsPerformed = user?.user_usage?.audits_performed ?? 0;
   const auditLimit = user?.user_usage?.audit_limit ?? 0;
   const isUnlimitedPlan = auditLimit >= 9999;
@@ -76,6 +77,10 @@ export function Layout({ children }: LayoutProps) {
   const isActive = (path: string) =>
   location.pathname === path ||
   location.pathname.startsWith(path.split('/').slice(0, 2).join('/'));
+  const visibleNavItems = navItems.filter((item) => {
+    if (isTemp && item.path === '/billing') return false;
+    return true;
+  });
   return (
     <div className="flex h-screen w-full bg-[#050505] overflow-hidden">
       {/* ── LOGOUT CONFIRMATION MODAL ── */}
@@ -184,7 +189,7 @@ export function Layout({ children }: LayoutProps) {
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-hidden">
-          {navItems.map(({ path, label, icon: Icon }) => {
+          {visibleNavItems.map(({ path, label, icon: Icon }) => {
             const active = isActive(path);
 
             if (label === 'AUDIT LAB') {
@@ -238,13 +243,28 @@ export function Layout({ children }: LayoutProps) {
             <p className="font-mono text-[9px] text-[#404040] mb-3 tracking-wider">
               {isUnlimitedPlan ? '∞ AUDITS REMAINING' : `${auditsRemaining} AUDITS REMAINING`}
             </p>
-            <Link
-            to="/billing"
-            className="w-full py-2 text-[10px] font-mono font-bold tracking-widest text-[#EF4444] border border-[#EF4444] hover:bg-[#EF4444] hover:text-white transition-colors flex items-center justify-center gap-1">
+            {!isTemp && (
+              <Link
+                to="/billing"
+                className="w-full py-2 text-[10px] font-mono font-bold tracking-widest text-[#EF4444] border border-[#EF4444] hover:bg-[#EF4444] hover:text-white transition-colors flex items-center justify-center gap-1"
+              >
+                <ChevronUpIcon className="w-3 h-3" />
+                UPGRADE TO PRO
+              </Link>
+            )}
 
-              <ChevronUpIcon className="w-3 h-3" />
-              UPGRADE TO PRO
-            </Link>
+            {isTemp && (
+              <div className="mt-2">
+                <span className="font-mono text-[9px] text-[#EAB308] bg-[#EAB308]/10 border border-[#EAB308]/30 px-2 py-0.5 tracking-widest">
+                  TEMP ACCESS
+                </span>
+                {user?.expires_at && (
+                  <p className="font-mono text-[9px] text-[#404040] mt-1">
+                    EXPIRES: {new Date(user.expires_at).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         }
 

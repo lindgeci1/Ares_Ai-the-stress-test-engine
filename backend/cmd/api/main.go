@@ -121,12 +121,13 @@ func main() {
 
 	// API routes
 	api := app.Group("/api/v1")
+	api.Get("/public/stats", handlers.GetPublicStats(db))
 
 	// Initialize repositories, services, and handlers
 	userRepo := repository.NewUserRepository(db)
-	userService := service.NewUserService(userRepo)
-	userHandler := handlers.NewUserHandler(userService)
 	emailService := service.NewEmailService()
+	userService := service.NewUserService(userRepo, emailService)
+	userHandler := handlers.NewUserHandler(userService)
 	resetPasswordRepo := repository.NewResetPasswordRepository(db)
 	resetPasswordService := service.NewResetPasswordService(resetPasswordRepo, userRepo, emailService)
 	resetPasswordHandler := handlers.NewResetPasswordHandler(resetPasswordService)

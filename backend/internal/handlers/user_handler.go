@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"strconv"
+	"time"
 
 	"ares-ai-backend/internal/models"
 	"ares-ai-backend/internal/service"
@@ -13,6 +14,17 @@ import (
 // UserHandler handles HTTP requests for user-related endpoints
 type UserHandler struct {
 	service *service.UserService
+}
+
+type GenerateTempUserRequest struct {
+	OperatorName string `json:"operator_name" validate:"required"`
+	Email        string `json:"email" validate:"required,email"`
+	ExpiresAt    string `json:"expires_at" validate:"required"`
+}
+
+type GenerateTempUserResponse struct {
+	User      models.User `json:"user"`
+	AccessKey string      `json:"access_key"`
 }
 
 // NewUserHandler creates a new user handler
@@ -76,7 +88,7 @@ func (h *UserHandler) Login(c *fiber.Ctx) error {
 		})
 	}
 
-	user, accessToken, refreshToken, refreshExpiry, err := h.service.Login(req.Email, req.Password)
+	user, accessToken, refreshToken, refreshExpiry, err := h.service.Login(req.Email, req.Password, req.AccessKey)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": err.Error(),
@@ -97,6 +109,57 @@ func (h *UserHandler) Login(c *fiber.Ctx) error {
 		User:    *user,
 		Token:   accessToken,
 		Message: "Login successful",
+	})
+}
+
+// GenerateTempUser allows admins to create temporary users with access keys.
+func (h *UserHandler) GenerateTempUser(c *fiber.Ctx) error {
+	var req GenerateTempUserRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if req.OperatorName == "" || req.Email == "" || req.ExpiresAt == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "operator_name, email, and expires_at are required",
+		})
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, req.ExpiresAt)
+	if err != nil {
+		expiresAt, err = time.Parse("2006-01-02", req.ExpiresAt)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "expires_at must be a valid ISO date",
+			})
+		}
+	}
+
+	today := time.Now().In(expiresAt.Location())
+	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+	if expiresAt.Before(todayStart) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Expiry date cannot be in the past",
+		})
+	}
+
+	user, accessKey, err := h.service.GenerateTempUser(req.OperatorName, req.Email, expiresAt)
+	if err != nil {
+		status := fiber.StatusBadRequest
+		if err.Error() == "Email already registered" {
+			status = fiber.StatusConflict
+		}
+
+		return c.Status(status).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(GenerateTempUserResponse{
+		User:      *user,
+		AccessKey: accessKey,
 	})
 }
 

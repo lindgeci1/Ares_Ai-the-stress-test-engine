@@ -1,9 +1,10 @@
 package service
 
 import (
-	"crypto/rand"
+	crand "crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"os"
 	"strings"
 	"time"
@@ -18,12 +19,13 @@ import (
 
 // UserService handles business logic for users
 type UserService struct {
-	repo *repository.UserRepository
+	repo         *repository.UserRepository
+	emailService *EmailService
 }
 
 // NewUserService creates a new user service
-func NewUserService(repo *repository.UserRepository) *UserService {
-	return &UserService{repo: repo}
+func NewUserService(repo *repository.UserRepository, emailService *EmailService) *UserService {
+	return &UserService{repo: repo, emailService: emailService}
 }
 
 // Register creates a new user account with role assignment (first user = admin)
@@ -56,14 +58,11 @@ func (s *UserService) Register(email, password, operatorName string) (*models.Us
 }
 
 // Login authenticates a user and creates access/refresh tokens
-func (s *UserService) Login(email, password string) (*models.User, string, string, time.Time, error) {
+func (s *UserService) Login(email, password, accessKey string) (*models.User, string, string, time.Time, error) {
 	// Validate input
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
 		return nil, "", "", time.Time{}, fmt.Errorf("email is required")
-	}
-	if password == "" {
-		return nil, "", "", time.Time{}, fmt.Errorf("password is required")
 	}
 
 	// Get user by email with roles
@@ -72,9 +71,25 @@ func (s *UserService) Login(email, password string) (*models.User, string, strin
 		return nil, "", "", time.Time{}, fmt.Errorf("invalid email or password")
 	}
 
-	// Verify password using bcrypt
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return nil, "", "", time.Time{}, fmt.Errorf("invalid email or password")
+	if strings.TrimSpace(accessKey) != "" {
+		if !user.IsTemp {
+			return nil, "", "", time.Time{}, fmt.Errorf("invalid credentials")
+		}
+		if user.AccessKey == nil || *user.AccessKey != accessKey {
+			return nil, "", "", time.Time{}, fmt.Errorf("invalid access key")
+		}
+		if user.ExpiresAt != nil && user.ExpiresAt.Before(time.Now()) {
+			return nil, "", "", time.Time{}, fmt.Errorf("access key expired")
+		}
+	} else {
+		if password == "" {
+			return nil, "", "", time.Time{}, fmt.Errorf("password is required")
+		}
+
+		// Verify password using bcrypt
+		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+			return nil, "", "", time.Time{}, fmt.Errorf("invalid email or password")
+		}
 	}
 
 	accessToken, err := s.generateAccessToken(user)
@@ -93,6 +108,47 @@ func (s *UserService) Login(email, password string) (*models.User, string, strin
 	}
 
 	return user, accessToken, refreshToken, refreshExpiry, nil
+}
+
+// GenerateTempUser creates a temporary user account and emails credentials.
+func (s *UserService) GenerateTempUser(operatorName, email string, expiresAt time.Time) (*models.User, string, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	operatorName = strings.TrimSpace(operatorName)
+
+	if email == "" {
+		return nil, "", fmt.Errorf("email is required")
+	}
+	if operatorName == "" {
+		return nil, "", fmt.Errorf("operator name is required")
+	}
+
+	accessKey, err := generateAccessKey()
+	if err != nil {
+		return nil, "", fmt.Errorf("generate access key: %w", err)
+	}
+
+	tempSecret, err := generateRandomToken(32)
+	if err != nil {
+		return nil, "", fmt.Errorf("generate temp password: %w", err)
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(tempSecret), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, "", fmt.Errorf("hash temp password: %w", err)
+	}
+
+	user, err := s.repo.CreateTempUser(email, string(hashedPassword), operatorName, accessKey, expiresAt)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if s.emailService != nil {
+		if err := s.emailService.SendTempUserCredentials(email, operatorName, accessKey, expiresAt.Format(time.RFC3339)); err != nil {
+			return nil, "", err
+		}
+	}
+
+	return user, accessKey, nil
 }
 
 // GetUser retrieves a user by ID
@@ -204,6 +260,7 @@ func (s *UserService) generateAccessToken(user *models.User) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"role":    role,
+		"is_temp": user.IsTemp,
 		"exp":     time.Now().Add(15 * time.Minute).Unix(),
 		"iat":     time.Now().Unix(),
 	}
@@ -224,7 +281,43 @@ func (s *UserService) generateAccessToken(user *models.User) (string, error) {
 
 func (s *UserService) generateRefreshToken() (string, error) {
 	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := crand.Read(b); err != nil {
+		return "", err
+	}
+
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func generateAccessKey() (string, error) {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	seg1, err := randomString(6, chars)
+	if err != nil {
+		return "", err
+	}
+	seg2, err := randomString(6, chars)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("ARES-%s-%s-ENT", seg1, seg2), nil
+}
+
+func randomString(n int, chars string) (string, error) {
+	b := make([]byte, n)
+	for i := range b {
+		idx, err := crand.Int(crand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return "", err
+		}
+		b[i] = chars[idx.Int64()]
+	}
+
+	return string(b), nil
+}
+
+func generateRandomToken(byteLength int) (string, error) {
+	b := make([]byte, byteLength)
+	if _, err := crand.Read(b); err != nil {
 		return "", err
 	}
 

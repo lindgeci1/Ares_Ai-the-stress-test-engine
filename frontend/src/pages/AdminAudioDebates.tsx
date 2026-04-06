@@ -4,6 +4,7 @@ import {
   RefreshCwIcon,
   SearchIcon,
   ExternalLinkIcon,
+  DownloadIcon,
 } from 'lucide-react';
 import {
   authService,
@@ -13,6 +14,7 @@ import {
 } from '../services/authService';
 import { dataCache } from '../utils/dataCache';
 import { useToast } from '../context/useToast';
+import { exportToPdf } from '../utils/exportPdf';
 
 const AUDIO_DEBATES_CACHE_KEY = 'admin:audio-debates';
 
@@ -139,6 +141,22 @@ export function AdminAudioDebates() {
     });
   }, [rows, search]);
 
+  const handleExportPdf = () => {
+    exportToPdf({
+      title: 'AUDIO DEBATE REGISTRY',
+      subtitle: `${rows.length} debates - exported ${new Date().toISOString()}`,
+      columns: ['ID', 'DOCUMENT ID', 'ROUND', 'AUDIO URL', 'CREATED'],
+      rows: rows.map((d) => [
+        d.id,
+        d.documentId,
+        d.roundNumber,
+        d.cloudinaryAudioURL ? 'Available' : '-',
+        new Date(d.createdAt).toLocaleDateString(),
+      ]),
+      filename: `ares-audio-debates-${Date.now()}`,
+    });
+  };
+
   return (
     <div className="p-6 min-h-full">
       <div className="flex items-start justify-between mb-6">
@@ -159,6 +177,13 @@ export function AdminAudioDebates() {
             {rows.length} AUDIO DEBATES
           </p>
         </div>
+        <button
+          onClick={handleExportPdf}
+          className="flex items-center gap-2 px-4 py-2.5 border border-[#262626] text-[#666] font-mono text-xs tracking-widest hover:border-[#404040] hover:text-white transition-colors"
+        >
+          <DownloadIcon className="w-3.5 h-3.5" />
+          EXPORT PDF
+        </button>
       </div>
 
       <div className="relative mb-4">
