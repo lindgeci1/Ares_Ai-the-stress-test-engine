@@ -109,15 +109,8 @@ func main() {
 
 	// Middleware
 	app.Use(logger.New())
-	
-	// Get CORS origins from environment or use dev defaults
-	allowOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
-	if allowOrigins == "" {
-		allowOrigins = "http://localhost:3000, http://localhost:5173, http://localhost:5174, http://127.0.0.1:3000, http://127.0.0.1:5173, http://127.0.0.1:5174"
-	}
-	
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     allowOrigins,
+		AllowOrigins:     os.Getenv("CORS_ALLOWED_ORIGINS"),
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 		AllowMethods:     "GET, POST, PUT, DELETE, OPTIONS",
 		AllowCredentials: true,
