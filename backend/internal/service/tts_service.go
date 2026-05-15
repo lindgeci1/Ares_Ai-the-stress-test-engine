@@ -3,48 +3,57 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	tts "cloud.google.com/go/texttospeech/apiv1"
+	texttospeechpb "cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
 	"github.com/hajimehoshi/go-mp3"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
+	"google.golang.org/api/option"
 )
 
 type TTSService struct {
-	tokenSource oauth2.TokenSource
-	httpClient  *http.Client
+	client *tts.Client
 }
 
 func NewTTSService() (*TTSService, error) {
-	credentialsPath := strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
-	if credentialsPath == "" {
-		return nil, fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")
+	credsOption, err := googleCredentialsOption()
+	if err != nil {
+		return nil, err
 	}
 
-	credsBytes, err := os.ReadFile(credentialsPath)
+	client, err := tts.NewClient(context.Background(), credsOption)
 	if err != nil {
-		return nil, fmt.Errorf("read Google credentials: %w", err)
-	}
-
-	creds, err := google.CredentialsFromJSON(context.Background(), credsBytes, "https://www.googleapis.com/auth/cloud-platform")
-	if err != nil {
-		return nil, fmt.Errorf("load Google credentials: %w", err)
+		return nil, fmt.Errorf("create Google Text-to-Speech client: %w", err)
 	}
 
 	return &TTSService{
-		tokenSource: creds.TokenSource,
-		httpClient: &http.Client{
-			Timeout: 90 * time.Second,
-		},
+		client: client,
 	}, nil
+}
+
+func googleCredentialsOption() (option.ClientOption, error) {
+	if credentialsJSON := strings.TrimSpace(os.Getenv("GOOGLE_CREDENTIALS_JSON")); credentialsJSON != "" {
+		return option.WithCredentialsJSON([]byte(credentialsJSON)), nil
+	}
+
+	credentialsPath := strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+	if credentialsPath == "" {
+		return nil, fmt.Errorf("GOOGLE_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS environment variable not set")
+	}
+
+	return option.WithCredentialsFile(credentialsPath), nil
+}
+
+func (s *TTSService) Close() error {
+	if s.client == nil {
+		return nil
+	}
+
+	return s.client.Close()
 }
 
 func (s *TTSService) GenerateDebateAudio(transcript []DebateEntry) ([]byte, []DebateEntry, error) {
@@ -119,69 +128,31 @@ func formatDuration(totalSeconds float64) string {
 }
 
 func (s *TTSService) synthesize(text string, voiceName string) ([]byte, error) {
-	token, err := s.tokenSource.Token()
-	if err != nil {
-		return nil, fmt.Errorf("get Google OAuth token: %w", err)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
 
-	payload := map[string]any{
-		"input": map[string]string{
-			"text": text,
+	req := &texttospeechpb.SynthesizeSpeechRequest{
+		Input: &texttospeechpb.SynthesisInput{
+			InputSource: &texttospeechpb.SynthesisInput_Text{Text: text},
 		},
-		"voice": map[string]string{
-			"languageCode": "en-US",
-			"name":         voiceName,
+		Voice: &texttospeechpb.VoiceSelectionParams{
+			LanguageCode: "en-US",
+			Name:         voiceName,
 		},
-		"audioConfig": map[string]string{
-			"audioEncoding": "MP3",
+		AudioConfig: &texttospeechpb.AudioConfig{
+			AudioEncoding: texttospeechpb.AudioEncoding_MP3,
 		},
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal TTS payload: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, "https://texttospeech.googleapis.com/v1/text:synthesize", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create TTS request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.client.SynthesizeSpeech(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("call Google TTS API: %w", err)
 	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read TTS response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("TTS API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
-	}
-
-	var ttsResp struct {
-		AudioContent string `json:"audioContent"`
-	}
-	if err := json.Unmarshal(respBytes, &ttsResp); err != nil {
-		return nil, fmt.Errorf("parse TTS response: %w", err)
-	}
-
-	if ttsResp.AudioContent == "" {
+	if len(resp.AudioContent) == 0 {
 		return nil, fmt.Errorf("TTS response audioContent is empty")
 	}
 
-	audioChunk, err := base64.StdEncoding.DecodeString(ttsResp.AudioContent)
-	if err != nil {
-		return nil, fmt.Errorf("decode TTS audio chunk: %w", err)
-	}
-
-	return audioChunk, nil
+	return resp.AudioContent, nil
 }
 
 func voiceForRole(role string) string {

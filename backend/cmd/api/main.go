@@ -76,20 +76,9 @@ func main() {
 	db.Exec("DROP INDEX IF EXISTS idx_audio_debates_document_id")
 	db.Exec("DROP INDEX IF EXISTS uni_audio_debates_document_id")
 
-	// Auto-migrate models - GORM will create/update tables automatically
-	if err := db.AutoMigrate(
-		&models.Role{},
-		&models.User{},
-		&models.RefreshToken{},
-		&models.ResetPassword{},
-		&models.UserRole{},
-		&models.UserUsage{},
-		&models.Document{},
-		&models.AuditReport{},
-		&models.AudioDebate{},
-		&models.Payment{},
-		&models.Offer{},
-	); err != nil {
+	// Auto-migrate only tables that are missing so startup does not fail on an
+	// already provisioned database.
+	if err := migrateMissingTables(db); err != nil {
 		log.Fatalf("Migration failed: %v\n", err)
 	}
 
@@ -185,6 +174,35 @@ func main() {
 	if err := app.Listen(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v\n", err)
 	}
+}
+
+func migrateMissingTables(db *gorm.DB) error {
+	modelsToMigrate := []interface{}{
+		&models.Role{},
+		&models.User{},
+		&models.RefreshToken{},
+		&models.ResetPassword{},
+		&models.UserRole{},
+		&models.UserUsage{},
+		&models.Document{},
+		&models.AuditReport{},
+		&models.AudioDebate{},
+		&models.Payment{},
+		&models.Offer{},
+	}
+
+	missingTables := make([]interface{}, 0, len(modelsToMigrate))
+	for _, model := range modelsToMigrate {
+		if !db.Migrator().HasTable(model) {
+			missingTables = append(missingTables, model)
+		}
+	}
+
+	if len(missingTables) == 0 {
+		return nil
+	}
+
+	return db.AutoMigrate(missingTables...)
 }
 
 // seedOffers inserts the default subscription plans if they don't exist yet

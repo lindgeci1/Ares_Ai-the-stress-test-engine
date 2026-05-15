@@ -88,7 +88,7 @@ func (s *OllamaService) GenerateDebate(rawText string) ([]DebateEntry, error) {
 
 	systemPrompt := debateSystemPrompt()
 	payload := map[string]any{
-		"model": "deepseek-v3.1:671b-cloud",
+		"model": "gpt-oss:20b-cloud",
 		"messages": []map[string]string{
 			{
 				"role":    "system",
@@ -169,7 +169,7 @@ func (s *OllamaService) GenerateAuditReport(rawText string) (*AuditReportResult,
 	}
 
 	payload := map[string]any{
-		"model": "deepseek-v3.1:671b-cloud",
+		"model": "gpt-oss:20b-cloud",
 		"messages": []map[string]string{
 			{
 				"role":    "system",
