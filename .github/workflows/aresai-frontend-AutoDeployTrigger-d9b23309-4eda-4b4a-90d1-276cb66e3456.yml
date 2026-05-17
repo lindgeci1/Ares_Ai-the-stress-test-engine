@@ -35,15 +35,14 @@ jobs:
         uses: azure/container-apps-deploy-action@v2
         with:
           appSourcePath: ${{ github.workspace }}/frontend
-          _dockerfilePathKey_: _dockerfilePath_
-          _targetLabelKey_: _targetLabel_
           registryUrl: docker.io
           registryUsername: ${{ secrets.ARESAIFRONTEND_REGISTRY_USERNAME }}
           registryPassword: ${{ secrets.ARESAIFRONTEND_REGISTRY_PASSWORD }}
           containerAppName: aresai-frontend
           resourceGroup: Ares_Ai-the-stress-test-engine
-          imageToBuild: lindgeci/aresai-frontend:${{ github.sha }}
-          _buildArgumentsKey_: |
-            _buildArgumentsValues_
+          imageToBuild: docker.io/lindgeci/aresai-frontend:prod
+          buildArguments: |
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
+            VITE_STRIPE_PUBLIC_KEY=${{ secrets.VITE_STRIPE_PUBLIC_KEY }}
 
 
