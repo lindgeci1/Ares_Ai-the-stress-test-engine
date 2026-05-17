@@ -36,9 +36,9 @@ import (
 // @license.name MIT
 // @license.url https://opensource.org/licenses/MIT
 
-// @host localhost:3000
+// @host aresai-backend.bravemoss-81b9af52.germanywestcentral.azurecontainerapps.io
 // @BasePath /api/v1
-// @schemes http https
+// @schemes https
 
 func main() {
 	// Load environment variables from .env file
