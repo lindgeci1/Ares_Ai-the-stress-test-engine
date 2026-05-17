@@ -22,7 +22,7 @@ import (
 	"gorm.io/gorm"
 	gormLogger "gorm.io/gorm/logger"
 
-	_ "ares-ai-backend/docs" // Import generated docs
+	docs "ares-ai-backend/docs" // Import generated docs (alias for runtime config)
 )
 
 // @title Ares AI API
@@ -45,6 +45,18 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Warning: .env file not found, using system environment variables")
 	}
+
+	// Configure Swagger host and schemes at runtime from env (overrides generated defaults)
+	swaggerHost := os.Getenv("SWAGGER_HOST")
+	if swaggerHost == "" {
+		swaggerHost = "localhost:3000"
+	}
+	swaggerScheme := os.Getenv("SWAGGER_SCHEME")
+	if swaggerScheme == "" {
+		swaggerScheme = "http"
+	}
+	docs.SwaggerInfo.Host = swaggerHost
+	docs.SwaggerInfo.Schemes = []string{swaggerScheme}
 
 	// Initialize Stripe
 	stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
