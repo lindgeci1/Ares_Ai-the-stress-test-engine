@@ -40,7 +40,7 @@ jobs:
           resourceGroup: Ares_Ai-the-stress-test-engine
           imageToBuild: lindgeci/aresai-frontend:${{ github.sha }}
           buildArguments: |
-            VITE_API_URL=https://aresai-backend.bravemoss-81b9af52.germanywestcentral.azurecontainerapps.io
+            VITE_API_URL=https://aresai-backend.bravemoss-81b9af52.germanywestcentral.azurecontainerapps.io/api/v1
             VITE_STRIPE_PUBLIC_KEY=${{ secrets.VITE_STRIPE_PUBLIC_KEY }}
 
 
